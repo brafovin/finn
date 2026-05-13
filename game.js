@@ -146,8 +146,8 @@
     trackLength = segments.length * SEGMENT_LENGTH;
 
     // place roadside sprites (dense, varied landscape)
-    const SPRITE_TYPES = ['palm', 'palm', 'palm', 'cactus', 'cactus', 'bush', 'bush',
-                          'rock', 'rock', 'pylon', 'sign'];
+    const SPRITE_TYPES = ['palm', 'palm', 'tree', 'tree', 'tree', 'pine', 'pine', 'pine',
+                          'cactus', 'cactus', 'bush', 'bush', 'rock', 'rock', 'pylon', 'sign'];
     for (let i = 10; i < segments.length; i += 1 + Math.floor(Math.random() * 3)) {
       // left side
       if (Math.random() < 0.7) {
@@ -562,6 +562,62 @@
     ctx.fill();
   }
 
+  function drawTree(x, y, scale) {
+    const trunkH = 30 * scale;
+    const trunkW = 8 * scale;
+    if (trunkH < 2) return;
+    // trunk
+    ctx.fillStyle = '#3a2010';
+    ctx.fillRect(x - trunkW / 2, y - trunkH, trunkW, trunkH);
+    // foliage - layered green puffs
+    const top = y - trunkH;
+    const r = 32 * scale;
+    ctx.fillStyle = '#0f3320';
+    ctx.beginPath();
+    ctx.arc(x - r * 0.5, top - r * 0.2, r * 0.7, 0, Math.PI * 2);
+    ctx.arc(x + r * 0.4, top - r * 0.3, r * 0.65, 0, Math.PI * 2);
+    ctx.arc(x,           top - r * 0.7, r * 0.7, 0, Math.PI * 2);
+    ctx.arc(x - r * 0.2, top - r * 0.4, r * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+    // highlight
+    ctx.fillStyle = '#2a6a3a';
+    ctx.beginPath();
+    ctx.arc(x - r * 0.3, top - r * 0.7, r * 0.25, 0, Math.PI * 2);
+    ctx.arc(x + r * 0.1, top - r * 0.5, r * 0.2,  0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawPine(x, y, scale) {
+    const h = 75 * scale;
+    const w = 30 * scale;
+    if (h < 2) return;
+    // trunk
+    ctx.fillStyle = '#3a2010';
+    ctx.fillRect(x - 3 * scale, y - h * 0.18, 6 * scale, h * 0.18);
+    // three layered triangles
+    const layers = 3;
+    for (let i = 0; i < layers; i++) {
+      const ly = y - h * 0.18 - i * (h * 0.28);
+      const lw = w * (1 - i * 0.18);
+      const lh = h * 0.42;
+      ctx.fillStyle = i === layers - 1 ? '#0a4a28' : '#0e5a30';
+      ctx.beginPath();
+      ctx.moveTo(x,           ly - lh);
+      ctx.lineTo(x - lw / 2,  ly);
+      ctx.lineTo(x + lw / 2,  ly);
+      ctx.closePath();
+      ctx.fill();
+      // highlight
+      ctx.fillStyle = 'rgba(120, 200, 130, 0.35)';
+      ctx.beginPath();
+      ctx.moveTo(x,            ly - lh);
+      ctx.lineTo(x - lw * 0.15, ly - lh * 0.5);
+      ctx.lineTo(x - lw * 0.05, ly - lh * 0.3);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
   function drawSign(x, y, scale) {
     const w = 50 * scale, h = 36 * scale;
     if (h < 2) return;
@@ -678,6 +734,8 @@
         if (sprite.source === 'cactus') drawCactus(spriteX, spriteY, sz);
         if (sprite.source === 'rock')   drawRock(spriteX, spriteY, sz);
         if (sprite.source === 'bush')   drawBush(spriteX, spriteY, sz);
+        if (sprite.source === 'tree')   drawTree(spriteX, spriteY, sz);
+        if (sprite.source === 'pine')   drawPine(spriteX, spriteY, sz);
       }
 
       for (const car of segment.cars) {
