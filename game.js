@@ -145,12 +145,22 @@
     }
     trackLength = segments.length * SEGMENT_LENGTH;
 
-    // place roadside sprites
-    for (let i = 10; i < segments.length; i += 4 + Math.floor(Math.random() * 6)) {
-      const side = Math.random() < 0.5 ? -1 : 1;
-      const offset = side * (1.2 + Math.random() * 1.5);
-      const type = Math.random() < 0.6 ? 'palm' : (Math.random() < 0.5 ? 'pylon' : 'sign');
-      segments[i].sprites.push({ source: type, offset });
+    // place roadside sprites (dense, varied landscape)
+    const SPRITE_TYPES = ['palm', 'palm', 'palm', 'cactus', 'cactus', 'bush', 'bush',
+                          'rock', 'rock', 'pylon', 'sign'];
+    for (let i = 10; i < segments.length; i += 1 + Math.floor(Math.random() * 3)) {
+      // left side
+      if (Math.random() < 0.7) {
+        const offset = -(1.2 + Math.random() * 2.5);
+        const type = SPRITE_TYPES[Math.floor(Math.random() * SPRITE_TYPES.length)];
+        segments[i].sprites.push({ source: type, offset });
+      }
+      // right side
+      if (Math.random() < 0.7) {
+        const offset = 1.2 + Math.random() * 2.5;
+        const type = SPRITE_TYPES[Math.floor(Math.random() * SPRITE_TYPES.length)];
+        segments[i].sprites.push({ source: type, offset });
+      }
     }
   }
 
@@ -208,15 +218,89 @@
   }
 
   // ---------- Rendering primitives ----------
+  // pre-generated star + cloud + skyline data so they don't flicker
+  const STARS = Array.from({ length: 80 }, () => ({
+    x: Math.random() * W,
+    y: Math.random() * H * 0.35,
+    r: Math.random() * 1.4 + 0.3,
+    a: Math.random() * 0.7 + 0.3,
+    tw: Math.random() * Math.PI * 2,
+  }));
+
+  const CLOUDS = Array.from({ length: 7 }, (_, i) => ({
+    x: (i * 180 + Math.random() * 120) % (W + 400) - 200,
+    y: 60 + Math.random() * 120,
+    s: 0.7 + Math.random() * 0.8,
+    drift: 0,
+  }));
+
+  const SKYLINE = (() => {
+    const buildings = [];
+    let x = 0;
+    while (x < W + 200) {
+      const w = 18 + Math.random() * 50;
+      const h = 30 + Math.random() * 90;
+      buildings.push({ x, w, h, windows: Math.random() < 0.7 });
+      x += w + 2 + Math.random() * 6;
+    }
+    return buildings;
+  })();
+
   function drawSky() {
     const grad = ctx.createLinearGradient(0, 0, 0, H * 0.7);
-    grad.addColorStop(0,    '#1a0a2e');
-    grad.addColorStop(0.35, '#5a1854');
-    grad.addColorStop(0.6,  '#cc3a6f');
-    grad.addColorStop(0.85, '#ff8a3a');
+    grad.addColorStop(0,    '#0a0420');
+    grad.addColorStop(0.25, '#2a0a48');
+    grad.addColorStop(0.5,  '#7a1a5e');
+    grad.addColorStop(0.7,  '#cc3a6f');
+    grad.addColorStop(0.88, '#ff8a3a');
     grad.addColorStop(1,    '#ffd266');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
+  }
+
+  function drawStars() {
+    for (const s of STARS) {
+      const flicker = 0.7 + 0.3 * Math.sin(elapsed * 3 + s.tw);
+      ctx.fillStyle = `rgba(255, 240, 220, ${s.a * flicker})`;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawClouds(cameraX) {
+    const parallax = -cameraX * 0.00005;
+    for (const c of CLOUDS) {
+      const cx = ((c.x + c.drift + parallax * 200) % (W + 400) + W + 400) % (W + 400) - 200;
+      const cy = c.y;
+      const s = c.s;
+      ctx.fillStyle = 'rgba(255, 200, 220, 0.35)';
+      ctx.beginPath();
+      ctx.ellipse(cx,           cy,       40 * s, 14 * s, 0, 0, Math.PI * 2);
+      ctx.ellipse(cx + 30 * s,  cy + 4,   30 * s, 12 * s, 0, 0, Math.PI * 2);
+      ctx.ellipse(cx - 28 * s,  cy + 5,   28 * s, 10 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawSkyline(horizonY, cameraX) {
+    const parallax = -cameraX * 0.00015;
+    const baseY = horizonY + 6;
+    // silhouette behind mountains
+    ctx.fillStyle = '#0a061a';
+    for (const b of SKYLINE) {
+      const bx = ((b.x + parallax * 200) % (W + 200) + W + 200) % (W + 200) - 100;
+      ctx.fillRect(bx, baseY - b.h, b.w, b.h);
+      if (b.windows) {
+        ctx.fillStyle = 'rgba(255, 200, 100, 0.6)';
+        for (let wy = baseY - b.h + 6; wy < baseY - 4; wy += 8) {
+          for (let wx = bx + 3; wx < bx + b.w - 4; wx += 6) {
+            if (((wx + wy) | 0) % 13 < 7) ctx.fillRect(wx, wy, 2, 3);
+          }
+        }
+        ctx.fillStyle = '#0a061a';
+      }
+    }
   }
 
   function drawSun(horizonY) {
@@ -425,6 +509,59 @@
     ctx.fillRect(x - h * 0.3, y - h * 0.55, h * 0.6, h * 0.12);
   }
 
+  function drawCactus(x, y, scale) {
+    const h = 70 * scale;
+    const w = 14 * scale;
+    if (h < 2) return;
+    ctx.fillStyle = '#1a4030';
+    // main body
+    roundRect(x - w / 2, y - h, w, h, w * 0.4, '#1a4030');
+    // left arm
+    ctx.fillRect(x - w * 1.8, y - h * 0.6, w * 0.6, h * 0.35);
+    ctx.fillRect(x - w * 1.8, y - h * 0.7, w * 0.6 + w * 0.6, w * 0.5);
+    // right arm
+    ctx.fillRect(x + w * 1.2, y - h * 0.5, w * 0.6, h * 0.4);
+    ctx.fillRect(x + w * 0.4, y - h * 0.5, w * 1.4, w * 0.5);
+    // highlight
+    ctx.fillStyle = '#2a6048';
+    ctx.fillRect(x - w * 0.3, y - h + 2 * scale, w * 0.2, h - 4 * scale);
+  }
+
+  function drawRock(x, y, scale) {
+    const r = 24 * scale;
+    if (r < 2) return;
+    const g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.6, r * 0.2, x, y - r * 0.3, r);
+    g.addColorStop(0, '#7a6a80');
+    g.addColorStop(1, '#2a1f3a');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(x - r,         y);
+    ctx.lineTo(x - r * 0.7,   y - r * 0.6);
+    ctx.lineTo(x - r * 0.2,   y - r * 0.9);
+    ctx.lineTo(x + r * 0.4,   y - r * 0.8);
+    ctx.lineTo(x + r,         y - r * 0.3);
+    ctx.lineTo(x + r * 0.6,   y);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawBush(x, y, scale) {
+    const r = 18 * scale;
+    if (r < 2) return;
+    ctx.fillStyle = '#1a3a25';
+    ctx.beginPath();
+    ctx.arc(x - r * 0.5, y - r * 0.4, r * 0.7, 0, Math.PI * 2);
+    ctx.arc(x + r * 0.4, y - r * 0.5, r * 0.6, 0, Math.PI * 2);
+    ctx.arc(x,           y - r * 0.8, r * 0.6, 0, Math.PI * 2);
+    ctx.arc(x - r * 0.1, y - r * 0.3, r * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#2a5a3a';
+    ctx.beginPath();
+    ctx.arc(x - r * 0.3, y - r * 0.7, r * 0.2, 0, Math.PI * 2);
+    ctx.arc(x + r * 0.2, y - r * 0.6, r * 0.18, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   function drawSign(x, y, scale) {
     const w = 50 * scale, h = 36 * scale;
     if (h < 2) return;
@@ -487,7 +624,10 @@
     // Sky / sun / mountains. Horizon Y rough estimate.
     drawSky();
     const horizonY = H * 0.5;
+    drawStars();
+    drawClouds(cameraX);
     drawSun(horizonY);
+    drawSkyline(horizonY, cameraX);
     drawMountains(horizonY, cameraX);
 
     let maxY = H;
@@ -531,9 +671,13 @@
         const spriteScale = segment.p1.screen.scale;
         const spriteX = segment.p1.screen.x + (spriteScale * sprite.offset * ROAD_WIDTH * W / 2);
         const spriteY = segment.p1.screen.y;
-        if (sprite.source === 'palm')  drawPalm(spriteX, spriteY, spriteScale * 600);
-        if (sprite.source === 'pylon') drawPylon(spriteX, spriteY, spriteScale * 600);
-        if (sprite.source === 'sign')  drawSign(spriteX, spriteY, spriteScale * 600);
+        const sz = spriteScale * 1000;
+        if (sprite.source === 'palm')   drawPalm(spriteX, spriteY, sz);
+        if (sprite.source === 'pylon')  drawPylon(spriteX, spriteY, sz);
+        if (sprite.source === 'sign')   drawSign(spriteX, spriteY, sz);
+        if (sprite.source === 'cactus') drawCactus(spriteX, spriteY, sz);
+        if (sprite.source === 'rock')   drawRock(spriteX, spriteY, sz);
+        if (sprite.source === 'bush')   drawBush(spriteX, spriteY, sz);
       }
 
       for (const car of segment.cars) {
@@ -543,7 +687,7 @@
         const sScale = segment.p1.screen.scale +
                        (segment.p2.screen.scale - segment.p1.screen.scale) * carPercent;
         const screenX = sx + (sScale * car.offset * ROAD_WIDTH * W / 2);
-        drawCarSprite(screenX, sy, sScale * 600, car.color, false);
+        drawCarSprite(screenX, sy, sScale * 1400, car.color, false);
       }
     }
 
