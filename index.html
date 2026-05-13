@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sunset Racer</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="game" width="1024" height="600"></canvas>
+
+    <div id="hud">
+      <div class="hud-block">
+        <div class="hud-label">SPEED</div>
+        <div class="hud-value"><span id="speed">0</span> <span class="unit">km/h</span></div>
+      </div>
+      <div class="hud-block">
+        <div class="hud-label">SCORE</div>
+        <div class="hud-value"><span id="score">0</span></div>
+      </div>
+      <div class="hud-block">
+        <div class="hud-label">TIME</div>
+        <div class="hud-value"><span id="time">0.0</span><span class="unit">s</span></div>
+      </div>
+    </div>
+
+    <div id="overlay" class="visible">
+      <div class="panel">
+        <h1>SUNSET RACER</h1>
+        <p class="tag">Ein Retro Arcade-Rennspiel</p>
+        <div class="controls">
+          <div><kbd>&larr;</kbd> <kbd>&rarr;</kbd> Lenken</div>
+          <div><kbd>&uarr;</kbd> Beschleunigen</div>
+          <div><kbd>&darr;</kbd> Bremsen</div>
+          <div><kbd>Leertaste</kbd> Pause</div>
+        </div>
+        <button id="start-btn">START</button>
+      </div>
+    </div>
+
+    <div id="gameover" class="hidden">
+      <div class="panel">
+        <h1>CRASH!</h1>
+        <p>Score: <span id="final-score">0</span></p>
+        <button id="restart-btn">NOCHMAL</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
