@@ -3,51 +3,105 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sunset Racer</title>
+  <title>Shine Garage — Auto-Wasch-Simulator</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div id="game-container">
-    <canvas id="game" width="1024" height="600"></canvas>
+    <div id="loading"><div class="spinner"></div><div class="loading-label">LADE GARAGE&hellip;</div></div>
 
-    <div id="hud">
-      <div class="hud-block">
-        <div class="hud-label">SPEED</div>
-        <div class="hud-value"><span id="speed">0</span> <span class="unit">km/h</span></div>
+    <!-- Top HUD -->
+    <div id="hud-top">
+      <div class="hud-card">
+        <div class="hud-label">SAUBERKEIT</div>
+        <div class="hud-bar"><div id="clean-fill" class="hud-bar-fill"></div></div>
+        <div id="clean-pct" class="hud-value-small">0%</div>
       </div>
-      <div class="hud-block">
+      <div class="hud-card">
+        <div class="hud-label">GLANZ</div>
+        <div class="hud-bar"><div id="shine-fill" class="hud-bar-fill shine"></div></div>
+        <div id="shine-pct" class="hud-value-small">0%</div>
+      </div>
+      <div class="hud-card">
+        <div class="hud-label">ZEIT</div>
+        <div id="timer" class="hud-value-large">0:00</div>
+      </div>
+      <div class="hud-card">
         <div class="hud-label">SCORE</div>
-        <div class="hud-value"><span id="score">0</span></div>
-      </div>
-      <div class="hud-block">
-        <div class="hud-label">TIME</div>
-        <div class="hud-value"><span id="time">0.0</span><span class="unit">s</span></div>
+        <div id="score" class="hud-value-large">0</div>
       </div>
     </div>
 
-    <div id="overlay" class="visible">
-      <div class="panel">
-        <h1>SUNSET RACER</h1>
-        <p class="tag">Ein Retro Arcade-Rennspiel</p>
-        <div class="controls">
-          <div><kbd>A</kbd> <kbd>D</kbd> / <kbd>&larr;</kbd> <kbd>&rarr;</kbd> Lenken</div>
-          <div><kbd>W</kbd> / <kbd>&uarr;</kbd> Beschleunigen</div>
-          <div><kbd>S</kbd> / <kbd>&darr;</kbd> Bremsen</div>
-          <div><kbd>Leertaste</kbd> Pause</div>
+    <!-- Tool dock -->
+    <div id="tools">
+      <button class="tool-btn active" data-tool="hose" title="Hochdruckreiniger (1)">
+        <span class="tool-icon">&#128688;</span>
+        <span class="tool-name">SPR&Uuml;HER</span>
+        <span class="tool-key">1</span>
+      </button>
+      <button class="tool-btn" data-tool="sponge" title="Schwamm (2)">
+        <span class="tool-icon">&#129529;</span>
+        <span class="tool-name">SCHWAMM</span>
+        <span class="tool-key">2</span>
+      </button>
+      <button class="tool-btn" data-tool="wax" title="Wachs (3)">
+        <span class="tool-icon">&#10024;</span>
+        <span class="tool-name">WACHS</span>
+        <span class="tool-key">3</span>
+      </button>
+    </div>
+
+    <!-- Camera hint -->
+    <div id="hint">
+      <div><b>LINKSKLICK</b> &mdash; Werkzeug einsetzen</div>
+      <div><b>RECHTSKLICK + ZIEHEN</b> &mdash; Kamera drehen</div>
+      <div><b>MAUSRAD</b> &mdash; Zoom</div>
+      <div><b>1 / 2 / 3</b> &mdash; Werkzeug wechseln</div>
+    </div>
+
+    <!-- Intro -->
+    <div id="overlay" class="overlay">
+      <div class="overlay-card">
+        <h1>SHINE GARAGE</h1>
+        <p class="subtitle">Premium Auto-Wasch-Simulator</p>
+        <p class="brief">
+          Reinige den Wagen mit Spr&uuml;her und Schwamm.
+          Anschlie&szlig;end Wachs auftragen f&uuml;r maximalen Glanz und Bonus-Score.
+        </p>
+        <ul class="controls">
+          <li><b>1</b> Hochdrucksprayer &mdash; entfernt Staub</li>
+          <li><b>2</b> Schwamm &mdash; entfernt hartn&auml;ckigen Schmutz</li>
+          <li><b>3</b> Wachs &mdash; poliert den Lack</li>
+          <li><b>Maus</b> Werkzeug einsetzen</li>
+          <li><b>Rechte Maustaste</b> Kamera drehen</li>
+          <li><b>Mausrad</b> Heran-/herauszoomen</li>
+        </ul>
+        <button id="start-btn">LOS GEHT'S</button>
+      </div>
+    </div>
+
+    <!-- Result -->
+    <div id="result" class="overlay hidden">
+      <div class="overlay-card">
+        <h1 id="result-title">SAUBER!</h1>
+        <div class="result-stats">
+          <div><span>Sauberkeit</span><b id="r-clean">100%</b></div>
+          <div><span>Glanz</span><b id="r-shine">100%</b></div>
+          <div><span>Zeit</span><b id="r-time">0:00</b></div>
+          <div><span>Score</span><b id="r-score">0</b></div>
         </div>
-        <button id="start-btn">START</button>
-      </div>
-    </div>
-
-    <div id="gameover" class="hidden">
-      <div class="panel">
-        <h1>CRASH!</h1>
-        <p>Score: <span id="final-score">0</span></p>
-        <button id="restart-btn">NOCHMAL</button>
+        <button id="next-btn">N&Auml;CHSTER WAGEN</button>
       </div>
     </div>
   </div>
 
-  <script src="game.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+      }
+    }
+  </script>
+  <script type="module" src="game.js"></script>
 </body>
 </html>
