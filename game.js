@@ -745,7 +745,7 @@
         const sScale = segment.p1.screen.scale +
                        (segment.p2.screen.scale - segment.p1.screen.scale) * carPercent;
         const screenX = sx + (sScale * car.offset * ROAD_WIDTH * W / 2);
-        drawCarSprite(screenX, sy, sScale * 1400, car.color, false);
+        drawCarSprite(screenX, sy, sScale * 2200, car.color, false);
       }
     }
 
@@ -835,7 +835,7 @@
     score += Math.floor(speed * dt * 0.01);
 
     // HUD
-    document.getElementById('speed').textContent = Math.floor(speed / MAX_SPEED * 100);
+    document.getElementById('speed').textContent = Math.floor(speed / MAX_SPEED * 500);
     document.getElementById('score').textContent = score;
     document.getElementById('time').textContent = elapsed.toFixed(1);
   }
