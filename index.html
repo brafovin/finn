@@ -3,47 +3,92 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sunset Racer</title>
+  <title>Sparkle Wash — Premium Car Detailing</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div id="game-container">
-    <canvas id="game" width="1024" height="600"></canvas>
+  <div id="app">
+    <canvas id="stage" width="1280" height="720"></canvas>
 
     <div id="hud">
-      <div class="hud-block">
-        <div class="hud-label">SPEED</div>
-        <div class="hud-value"><span id="speed">0</span> <span class="unit">km/h</span></div>
-      </div>
-      <div class="hud-block">
-        <div class="hud-label">SCORE</div>
-        <div class="hud-value"><span id="score">0</span></div>
-      </div>
-      <div class="hud-block">
-        <div class="hud-label">TIME</div>
-        <div class="hud-value"><span id="time">0.0</span><span class="unit">s</span></div>
-      </div>
-    </div>
-
-    <div id="overlay" class="visible">
-      <div class="panel">
-        <h1>SUNSET RACER</h1>
-        <p class="tag">Ein Retro Arcade-Rennspiel</p>
-        <div class="controls">
-          <div><kbd>A</kbd> <kbd>D</kbd> / <kbd>&larr;</kbd> <kbd>&rarr;</kbd> Lenken</div>
-          <div><kbd>W</kbd> / <kbd>&uarr;</kbd> Beschleunigen</div>
-          <div><kbd>S</kbd> / <kbd>&darr;</kbd> Bremsen</div>
-          <div><kbd>Leertaste</kbd> Pause</div>
+      <div class="hud-left">
+        <div class="logo">
+          <span class="logo-mark">✦</span>
+          <span class="logo-text">SPARKLE<small>wash</small></span>
         </div>
-        <button id="start-btn">START</button>
+        <div class="stats">
+          <div class="stat">
+            <span class="stat-label">Sauberkeit</span>
+            <div class="meter"><div id="cleanFill" class="meter-fill clean"></div></div>
+            <span id="cleanPct" class="stat-value">0%</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Schaum</span>
+            <div class="meter"><div id="foamFill" class="meter-fill foam"></div></div>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Glanz</span>
+            <div class="meter"><div id="shineFill" class="meter-fill shine"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="hud-right">
+        <div class="score-box">
+          <div class="score-label">Punkte</div>
+          <div id="score" class="score-value">0</div>
+        </div>
+        <div class="timer-box">
+          <div class="timer-label">Zeit</div>
+          <div id="timer" class="timer-value">02:00</div>
+        </div>
       </div>
     </div>
 
-    <div id="gameover" class="hidden">
-      <div class="panel">
-        <h1>CRASH!</h1>
-        <p>Score: <span id="final-score">0</span></p>
-        <button id="restart-btn">NOCHMAL</button>
+    <div id="tools">
+      <button class="tool" data-tool="hose" title="Wasserschlauch (1)">
+        <span class="tool-icon">💧</span>
+        <span class="tool-key">1</span>
+      </button>
+      <button class="tool" data-tool="foam" title="Schaumkanone (2)">
+        <span class="tool-icon">🫧</span>
+        <span class="tool-key">2</span>
+      </button>
+      <button class="tool" data-tool="sponge" title="Schwamm (3)">
+        <span class="tool-icon">🧽</span>
+        <span class="tool-key">3</span>
+      </button>
+      <button class="tool" data-tool="wax" title="Wachs &amp; Politur (4)">
+        <span class="tool-icon">✨</span>
+        <span class="tool-key">4</span>
+      </button>
+    </div>
+
+    <div id="overlay" class="overlay show">
+      <div class="overlay-card">
+        <h1>Sparkle <span>Wash</span></h1>
+        <p class="tag">Premium Car Detailing Simulator</p>
+        <ol class="howto">
+          <li><b>1 Wasser</b> – groben Schmutz wegspritzen</li>
+          <li><b>2 Schaum</b> – Auto komplett einschäumen</li>
+          <li><b>3 Schwamm</b> – einschrubben (halten &amp; ziehen)</li>
+          <li><b>1 Wasser</b> – Schaum abspülen</li>
+          <li><b>4 Wachs</b> – auf Hochglanz polieren</li>
+        </ol>
+        <button id="startBtn" class="cta">Schicht starten</button>
+      </div>
+    </div>
+
+    <div id="finishOverlay" class="overlay">
+      <div class="overlay-card">
+        <h1 id="finishTitle">Fertig!</h1>
+        <p id="finishSub" class="tag">Tolle Arbeit</p>
+        <div class="final-stats">
+          <div><span>Sauberkeit</span><b id="finalClean">0%</b></div>
+          <div><span>Glanz</span><b id="finalShine">0%</b></div>
+          <div><span>Punkte</span><b id="finalScore">0</b></div>
+        </div>
+        <button id="nextBtn" class="cta">Nächstes Auto</button>
       </div>
     </div>
   </div>
