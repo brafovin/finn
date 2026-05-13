@@ -406,63 +406,185 @@
 
   // ---------- Sprite drawing ----------
   function drawCarSprite(x, y, scale, color, isPlayer) {
-    const w = 110 * scale;
-    const h = 60 * scale;
+    // Lamborghini-style wedge supercar, rear 3/4 view
+    const w = 130 * scale;
+    const h = 56 * scale;
     if (w < 2 || h < 2) return;
-    const left = x - w / 2;
-    const top = y - h;
+    const cx = x;
+    const baseY = y;
+    const topY = y - h;
 
-    // shadow
-    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    // ground shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
     ctx.beginPath();
-    ctx.ellipse(x, y, w * 0.55, h * 0.18, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, baseY + 2 * scale, w * 0.58, h * 0.18, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // body gradient
-    const body = ctx.createLinearGradient(left, top, left, top + h);
-    body.addColorStop(0,   shade(color, 1.35));
-    body.addColorStop(0.5, color);
-    body.addColorStop(1,   shade(color, 0.6));
-
-    roundRect(left, top, w, h, h * 0.25, body);
-
-    // windshield
-    const ws = ctx.createLinearGradient(left, top, left, top + h * 0.45);
-    ws.addColorStop(0, '#1a3550');
-    ws.addColorStop(1, '#5a8ab0');
-    roundRect(left + w * 0.18, top + h * 0.15, w * 0.64, h * 0.32, h * 0.12, ws);
-
-    // hood line
-    ctx.fillStyle = shade(color, 0.5);
-    ctx.fillRect(left + w * 0.08, top + h * 0.55, w * 0.84, 2 * scale);
-
-    // wheels
-    const wheelH = h * 0.22;
-    const wheelW = w * 0.14;
+    // rear wheel arches (wider than front)
     ctx.fillStyle = '#0a0a0a';
-    ctx.fillRect(left + w * 0.04, top + h * 0.7, wheelW, wheelH);
-    ctx.fillRect(left + w - wheelW - w * 0.04, top + h * 0.7, wheelW, wheelH);
+    polygonPath([
+      [cx - w * 0.50, baseY - h * 0.05],
+      [cx - w * 0.50, baseY - h * 0.32],
+      [cx - w * 0.32, baseY - h * 0.38],
+      [cx - w * 0.32, baseY - h * 0.02],
+    ]);
+    ctx.fill();
+    polygonPath([
+      [cx + w * 0.50, baseY - h * 0.05],
+      [cx + w * 0.50, baseY - h * 0.32],
+      [cx + w * 0.32, baseY - h * 0.38],
+      [cx + w * 0.32, baseY - h * 0.02],
+    ]);
+    ctx.fill();
 
-    // lights
-    if (isPlayer) {
-      ctx.fillStyle = '#ff3060';
-      ctx.fillRect(left + w * 0.1,  top + h * 0.05, w * 0.18, h * 0.08);
-      ctx.fillRect(left + w * 0.72, top + h * 0.05, w * 0.18, h * 0.08);
-    } else {
-      // taillights facing player (red glowing)
-      const glow = ctx.createRadialGradient(left + w * 0.18, top + h * 0.15, 0,
-                                            left + w * 0.18, top + h * 0.15, w * 0.18);
-      glow.addColorStop(0, 'rgba(255, 60, 60, 0.9)');
-      glow.addColorStop(1, 'rgba(255, 60, 60, 0)');
-      ctx.fillStyle = glow;
-      ctx.fillRect(left, top, w, h);
-      const glow2 = ctx.createRadialGradient(left + w * 0.82, top + h * 0.15, 0,
-                                             left + w * 0.82, top + h * 0.15, w * 0.18);
-      glow2.addColorStop(0, 'rgba(255, 60, 60, 0.9)');
-      glow2.addColorStop(1, 'rgba(255, 60, 60, 0)');
-      ctx.fillStyle = glow2;
-      ctx.fillRect(left, top, w, h);
+    // wheels with rim highlight
+    drawWheel(cx - w * 0.44, baseY - h * 0.08, w * 0.10, h * 0.20);
+    drawWheel(cx + w * 0.44, baseY - h * 0.08, w * 0.10, h * 0.20);
+    // front wheels (narrower, more inset)
+    drawWheel(cx - w * 0.36, baseY - h * 0.05, w * 0.07, h * 0.14);
+    drawWheel(cx + w * 0.36, baseY - h * 0.05, w * 0.07, h * 0.14);
+
+    // main body - wedge shape (wide at rear, narrows toward front)
+    const body = ctx.createLinearGradient(cx, topY, cx, baseY);
+    body.addColorStop(0,   shade(color, 1.45));
+    body.addColorStop(0.4, color);
+    body.addColorStop(1,   shade(color, 0.55));
+    ctx.fillStyle = body;
+    polygonPath([
+      [cx - w * 0.48, baseY - h * 0.10],   // rear-left bottom
+      [cx - w * 0.50, baseY - h * 0.35],   // rear-left top of fender
+      [cx - w * 0.42, baseY - h * 0.55],   // shoulder
+      [cx - w * 0.28, baseY - h * 0.72],   // roofline rise
+      [cx - w * 0.08, baseY - h * 0.88],   // roof rear
+      [cx + w * 0.08, baseY - h * 0.88],   // roof front
+      [cx + w * 0.28, baseY - h * 0.72],
+      [cx + w * 0.42, baseY - h * 0.55],
+      [cx + w * 0.50, baseY - h * 0.35],
+      [cx + w * 0.48, baseY - h * 0.10],
+    ]);
+    ctx.fill();
+
+    // angular side strake / belt line
+    ctx.fillStyle = shade(color, 0.45);
+    polygonPath([
+      [cx - w * 0.46, baseY - h * 0.30],
+      [cx - w * 0.20, baseY - h * 0.42],
+      [cx + w * 0.20, baseY - h * 0.42],
+      [cx + w * 0.46, baseY - h * 0.30],
+      [cx + w * 0.44, baseY - h * 0.26],
+      [cx - w * 0.44, baseY - h * 0.26],
+    ]);
+    ctx.fill();
+
+    // angular windshield / cabin glass (hexagonal Aventador shape)
+    const ws = ctx.createLinearGradient(cx, topY, cx, baseY - h * 0.4);
+    ws.addColorStop(0, '#0a1a30');
+    ws.addColorStop(0.5, '#2a4a6a');
+    ws.addColorStop(1, '#6090b8');
+    ctx.fillStyle = ws;
+    polygonPath([
+      [cx - w * 0.22, baseY - h * 0.62],
+      [cx - w * 0.10, baseY - h * 0.82],
+      [cx + w * 0.10, baseY - h * 0.82],
+      [cx + w * 0.22, baseY - h * 0.62],
+      [cx + w * 0.20, baseY - h * 0.58],
+      [cx - w * 0.20, baseY - h * 0.58],
+    ]);
+    ctx.fill();
+
+    // roof highlight stripe
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    polygonPath([
+      [cx - w * 0.06, baseY - h * 0.86],
+      [cx + w * 0.06, baseY - h * 0.86],
+      [cx + w * 0.04, baseY - h * 0.80],
+      [cx - w * 0.04, baseY - h * 0.80],
+    ]);
+    ctx.fill();
+
+    // rear wing
+    ctx.fillStyle = shade(color, 0.35);
+    ctx.fillRect(cx - w * 0.40, baseY - h * 0.62, w * 0.80, h * 0.05);
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillRect(cx - w * 0.40, baseY - h * 0.58, 4 * scale, h * 0.18);
+    ctx.fillRect(cx + w * 0.40 - 4 * scale, baseY - h * 0.58, 4 * scale, h * 0.18);
+
+    // rear diffuser & quad exhausts
+    ctx.fillStyle = '#050505';
+    polygonPath([
+      [cx - w * 0.30, baseY - h * 0.10],
+      [cx + w * 0.30, baseY - h * 0.10],
+      [cx + w * 0.26, baseY - h * 0.02],
+      [cx - w * 0.26, baseY - h * 0.02],
+    ]);
+    ctx.fill();
+    ctx.fillStyle = '#2a2a2a';
+    for (let i = -1.5; i <= 1.5; i += 1) {
+      const ex = cx + i * w * 0.06;
+      ctx.fillRect(ex - w * 0.02, baseY - h * 0.09, w * 0.04, h * 0.05);
     }
+
+    // taillights - slim Y-shaped LED bars (Aventador style)
+    if (!isPlayer) {
+      // glow halo
+      const glow = ctx.createRadialGradient(cx, baseY - h * 0.30, 0, cx, baseY - h * 0.30, w * 0.55);
+      glow.addColorStop(0, 'rgba(255, 40, 60, 0.55)');
+      glow.addColorStop(1, 'rgba(255, 40, 60, 0)');
+      ctx.fillStyle = glow;
+      ctx.fillRect(cx - w * 0.6, baseY - h * 0.6, w * 1.2, h * 0.6);
+    }
+    // LED bar geometry (same shape player + AI; bright red)
+    ctx.fillStyle = isPlayer ? '#ff4060' : '#ff1030';
+    // left bar
+    polygonPath([
+      [cx - w * 0.42, baseY - h * 0.32],
+      [cx - w * 0.22, baseY - h * 0.32],
+      [cx - w * 0.24, baseY - h * 0.28],
+      [cx - w * 0.42, baseY - h * 0.28],
+    ]);
+    ctx.fill();
+    polygonPath([
+      [cx + w * 0.42, baseY - h * 0.32],
+      [cx + w * 0.22, baseY - h * 0.32],
+      [cx + w * 0.24, baseY - h * 0.28],
+      [cx + w * 0.42, baseY - h * 0.28],
+    ]);
+    ctx.fill();
+    // bright LED core
+    ctx.fillStyle = '#fff080';
+    ctx.fillRect(cx - w * 0.40, baseY - h * 0.31, w * 0.16, 1.5 * scale);
+    ctx.fillRect(cx + w * 0.24, baseY - h * 0.31, w * 0.16, 1.5 * scale);
+
+    // Lambo badge hint (small triangle) on rear deck
+    ctx.fillStyle = '#ffd060';
+    polygonPath([
+      [cx, baseY - h * 0.50],
+      [cx - 3 * scale, baseY - h * 0.45],
+      [cx + 3 * scale, baseY - h * 0.45],
+    ]);
+    ctx.fill();
+  }
+
+  function drawWheel(wx, wy, ww, wh) {
+    ctx.fillStyle = '#050505';
+    ctx.beginPath();
+    ctx.ellipse(wx, wy, ww, wh, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#3a3a40';
+    ctx.beginPath();
+    ctx.ellipse(wx, wy, ww * 0.55, wh * 0.55, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#0a0a0a';
+    ctx.beginPath();
+    ctx.ellipse(wx, wy, ww * 0.2, wh * 0.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function polygonPath(pts) {
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.closePath();
   }
 
   function drawPalm(x, y, scale) {
