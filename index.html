@@ -3,51 +3,76 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sunset Racer</title>
+  <title>Shadow Strike - 3D Shooter</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div id="game-container">
-    <canvas id="game" width="1024" height="600"></canvas>
+    <div id="crosshair">
+      <div class="ch-dot"></div>
+      <div class="ch-line ch-top"></div>
+      <div class="ch-line ch-bottom"></div>
+      <div class="ch-line ch-left"></div>
+      <div class="ch-line ch-right"></div>
+    </div>
 
     <div id="hud">
-      <div class="hud-block">
-        <div class="hud-label">SPEED</div>
-        <div class="hud-value"><span id="speed">0</span> <span class="unit">km/h</span></div>
-      </div>
-      <div class="hud-block">
-        <div class="hud-label">SCORE</div>
-        <div class="hud-value"><span id="score">0</span></div>
-      </div>
-      <div class="hud-block">
-        <div class="hud-label">TIME</div>
-        <div class="hud-value"><span id="time">0.0</span><span class="unit">s</span></div>
-      </div>
-    </div>
-
-    <div id="overlay" class="visible">
-      <div class="panel">
-        <h1>SUNSET RACER</h1>
-        <p class="tag">Ein Retro Arcade-Rennspiel</p>
-        <div class="controls">
-          <div><kbd>A</kbd> <kbd>D</kbd> / <kbd>&larr;</kbd> <kbd>&rarr;</kbd> Lenken</div>
-          <div><kbd>W</kbd> / <kbd>&uarr;</kbd> Beschleunigen</div>
-          <div><kbd>S</kbd> / <kbd>&darr;</kbd> Bremsen</div>
-          <div><kbd>Leertaste</kbd> Pause</div>
+      <div class="hud-row">
+        <div class="hud-block">
+          <div class="hud-label">HEALTH</div>
+          <div class="hud-bar"><div id="health-fill" class="hud-bar-fill health"></div></div>
         </div>
-        <button id="start-btn">START</button>
+        <div class="hud-block">
+          <div class="hud-label">AMMO</div>
+          <div id="ammo" class="hud-value">30 / 90</div>
+        </div>
+        <div class="hud-block">
+          <div class="hud-label">SCORE</div>
+          <div id="score" class="hud-value">0</div>
+        </div>
+        <div class="hud-block">
+          <div class="hud-label">WAVE</div>
+          <div id="wave" class="hud-value">1</div>
+        </div>
       </div>
     </div>
 
-    <div id="gameover" class="hidden">
-      <div class="panel">
-        <h1>CRASH!</h1>
+    <div id="damage-flash"></div>
+
+    <div id="overlay" class="overlay">
+      <div class="overlay-card">
+        <h1>SHADOW STRIKE</h1>
+        <p class="subtitle">Ein 3D-Shooter mit dynamischen Schatten</p>
+        <ul class="controls">
+          <li><b>WASD</b> &mdash; Bewegen</li>
+          <li><b>Maus</b> &mdash; Umsehen</li>
+          <li><b>Linksklick</b> &mdash; Schie&szlig;en</li>
+          <li><b>Leertaste</b> &mdash; Springen</li>
+          <li><b>Shift</b> &mdash; Sprinten</li>
+          <li><b>R</b> &mdash; Nachladen</li>
+          <li><b>ESC</b> &mdash; Pause</li>
+        </ul>
+        <button id="start-btn">SPIEL STARTEN</button>
+      </div>
+    </div>
+
+    <div id="game-over" class="overlay hidden">
+      <div class="overlay-card">
+        <h1 id="end-title">GAME OVER</h1>
         <p>Score: <span id="final-score">0</span></p>
-        <button id="restart-btn">NOCHMAL</button>
+        <p>Wave erreicht: <span id="final-wave">1</span></p>
+        <button id="restart-btn">NEU STARTEN</button>
       </div>
     </div>
   </div>
 
-  <script src="game.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+      }
+    }
+  </script>
+  <script type="module" src="game.js"></script>
 </body>
 </html>

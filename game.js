@@ -1,1012 +1,826 @@
-(() => {
-  'use strict';
+import * as THREE from 'three';
 
-  const canvas = document.getElementById('game');
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width;
-  const H = canvas.height;
+// ---------------------------------------------------------------------------
+// Shadow Strike — A first-person 3D shooter with dynamic shadows.
+// ---------------------------------------------------------------------------
 
-  // ---------- Constants ----------
-  const ROAD_WIDTH = 2000;
-  const SEGMENT_LENGTH = 200;
-  const RUMBLE_LENGTH = 3;
-  const DRAW_DISTANCE = 220;
-  const FIELD_OF_VIEW = 100;
-  const CAMERA_HEIGHT = 1000;
-  const CAMERA_DEPTH = 1 / Math.tan((FIELD_OF_VIEW / 2) * Math.PI / 180);
-  const LANES = 3;
-  const MAX_SPEED = SEGMENT_LENGTH * 60;
-  const ACCEL = MAX_SPEED / 5;
-  const BRAKING = -MAX_SPEED;
-  const DECEL = -MAX_SPEED / 5;
-  const OFFROAD_DECEL = -MAX_SPEED / 2;
-  const OFFROAD_LIMIT = MAX_SPEED / 4;
-  const CENTRIFUGAL = 0.3;
+const container = document.getElementById('game-container');
+const overlay = document.getElementById('overlay');
+const gameOverEl = document.getElementById('game-over');
+const startBtn = document.getElementById('start-btn');
+const restartBtn = document.getElementById('restart-btn');
+const crosshair = document.getElementById('crosshair');
+const damageFlash = document.getElementById('damage-flash');
+const healthFill = document.getElementById('health-fill');
+const ammoEl = document.getElementById('ammo');
+const scoreEl = document.getElementById('score');
+const waveEl = document.getElementById('wave');
+const finalScoreEl = document.getElementById('final-score');
+const finalWaveEl = document.getElementById('final-wave');
+const endTitleEl = document.getElementById('end-title');
 
-  const COLORS = {
-    SKY: '#1a0a2e',
-    SUN: '#ffcc55',
-    LIGHT: { road: '#6b6b6b', grass: '#1f5c3a', rumble: '#ffffff', lane: '#cfcfcf' },
-    DARK:  { road: '#606060', grass: '#1a4f33', rumble: '#c83a3a', lane: '#606060' },
-    START: { road: '#fff', grass: '#fff', rumble: '#fff' },
-    FINISH:{ road: '#000', grass: '#000', rumble: '#000' },
+// ---------------------------------------------------------------------------
+// Renderer / Scene / Camera
+// ---------------------------------------------------------------------------
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+container.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x10131c);
+scene.fog = new THREE.Fog(0x10131c, 30, 110);
+
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 500);
+camera.position.set(0, 1.7, 0);
+
+// ---------------------------------------------------------------------------
+// Lighting (shadow-casting sun + hemisphere fill + muzzle point light)
+// ---------------------------------------------------------------------------
+const hemi = new THREE.HemisphereLight(0x6080b0, 0x181a1f, 0.45);
+scene.add(hemi);
+
+const ambient = new THREE.AmbientLight(0x2a2e3a, 0.35);
+scene.add(ambient);
+
+const sun = new THREE.DirectionalLight(0xfff0d0, 1.6);
+sun.position.set(30, 50, 20);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.near = 1;
+sun.shadow.camera.far = 150;
+sun.shadow.camera.left = -60;
+sun.shadow.camera.right = 60;
+sun.shadow.camera.top = 60;
+sun.shadow.camera.bottom = -60;
+sun.shadow.bias = -0.0005;
+sun.shadow.normalBias = 0.02;
+scene.add(sun);
+scene.add(sun.target);
+
+const muzzleLight = new THREE.PointLight(0xffaa44, 0, 18, 2);
+muzzleLight.castShadow = false;
+camera.add(muzzleLight);
+muzzleLight.position.set(0.25, -0.25, -0.6);
+scene.add(camera);
+
+// ---------------------------------------------------------------------------
+// World — arena with floor, walls, and obstacles (all cast & receive shadows)
+// ---------------------------------------------------------------------------
+const ARENA = 60;
+
+function makeTexture(drawFn, size = 256) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  drawFn(ctx, size);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+const floorTex = makeTexture((ctx, s) => {
+  ctx.fillStyle = '#2a2c34';
+  ctx.fillRect(0, 0, s, s);
+  ctx.strokeStyle = '#1a1c22';
+  ctx.lineWidth = 4;
+  for (let i = 0; i <= s; i += 32) {
+    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, s); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(s, i); ctx.stroke();
+  }
+  ctx.fillStyle = 'rgba(255,255,255,0.02)';
+  for (let i = 0; i < 200; i++) {
+    ctx.fillRect(Math.random() * s, Math.random() * s, 2, 2);
+  }
+});
+floorTex.repeat.set(ARENA / 4, ARENA / 4);
+
+const floorMat = new THREE.MeshStandardMaterial({
+  map: floorTex,
+  roughness: 0.9,
+  metalness: 0.05,
+});
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(ARENA * 2, ARENA * 2), floorMat);
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+// Outer walls
+const wallTex = makeTexture((ctx, s) => {
+  ctx.fillStyle = '#3a3a44';
+  ctx.fillRect(0, 0, s, s);
+  ctx.strokeStyle = '#22222a';
+  ctx.lineWidth = 3;
+  for (let y = 0; y < s; y += 32) {
+    const off = (y / 32) % 2 === 0 ? 0 : 32;
+    for (let x = -32; x < s; x += 64) {
+      ctx.strokeRect(x + off, y, 64, 32);
+    }
+  }
+  ctx.fillStyle = 'rgba(0,0,0,0.15)';
+  for (let i = 0; i < 60; i++) {
+    ctx.fillRect(Math.random() * s, Math.random() * s, 6, 6);
+  }
+});
+wallTex.repeat.set(8, 1);
+
+const wallMat = new THREE.MeshStandardMaterial({
+  map: wallTex,
+  roughness: 0.85,
+  metalness: 0.1,
+});
+
+const walls = [];
+function addWall(x, z, w, d, h = 6) {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
+  mesh.position.set(x, h / 2, z);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+  walls.push(mesh);
+  return mesh;
+}
+
+// Perimeter walls
+addWall(0,  ARENA, ARENA * 2 + 2, 2);
+addWall(0, -ARENA, ARENA * 2 + 2, 2);
+addWall( ARENA, 0, 2, ARENA * 2 + 2);
+addWall(-ARENA, 0, 2, ARENA * 2 + 2);
+
+// Random crates / pillars as cover (deterministic seed for repeatability)
+function rand(seed) {
+  let s = seed;
+  return () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 0xffffffff;
   };
+}
+const rng = rand(1337);
 
-  // ---------- State ----------
-  let segments = [];
-  let trackLength = 0;
-  let position = 0;       // camera Z along road
-  let playerX = 0;        // -1..1 across road
-  let speed = 0;
-  let score = 0;
-  let elapsed = 0;
-  let running = false;
-  let paused = false;
-  let gameOver = false;
-  let lastTime = 0;
-  const cars = [];
+const crateMat = new THREE.MeshStandardMaterial({
+  color: 0x6b4a2a,
+  roughness: 0.85,
+  metalness: 0.05,
+});
+const pillarMat = new THREE.MeshStandardMaterial({
+  color: 0x4a4a55,
+  roughness: 0.6,
+  metalness: 0.3,
+});
 
-  // ---------- Input ----------
-  const keys = { left: false, right: false, up: false, down: false };
-  window.addEventListener('keydown', (e) => {
-    if (e.code === 'ArrowLeft'  || e.code === 'KeyA') keys.left  = true;
-    if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
-    if (e.code === 'ArrowUp'    || e.code === 'KeyW') keys.up    = true;
-    if (e.code === 'ArrowDown'  || e.code === 'KeyS') keys.down  = true;
-    if (e.code === 'Space') { e.preventDefault(); if (running && !gameOver) paused = !paused; }
+for (let i = 0; i < 22; i++) {
+  const isPillar = rng() > 0.6;
+  const x = (rng() * 2 - 1) * (ARENA - 6);
+  const z = (rng() * 2 - 1) * (ARENA - 6);
+  if (Math.hypot(x, z) < 6) continue; // keep spawn clear
+  if (isPillar) {
+    const h = 4 + rng() * 6;
+    const r = 0.6 + rng() * 0.8;
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 16), pillarMat);
+    m.position.set(x, h / 2, z);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    scene.add(m);
+    walls.push(m);
+  } else {
+    const w = 1.4 + rng() * 1.6;
+    const h = 1.2 + rng() * 1.8;
+    const d = 1.4 + rng() * 1.6;
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), crateMat);
+    m.position.set(x, h / 2, z);
+    m.rotation.y = rng() * Math.PI;
+    m.castShadow = true;
+    m.receiveShadow = true;
+    scene.add(m);
+    walls.push(m);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Weapon model (held in view)
+// ---------------------------------------------------------------------------
+const weapon = new THREE.Group();
+camera.add(weapon);
+weapon.position.set(0.32, -0.28, -0.55);
+
+const gunBodyMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1f, roughness: 0.5, metalness: 0.7 });
+const gunAccentMat = new THREE.MeshStandardMaterial({ color: 0x2c2c33, roughness: 0.4, metalness: 0.85 });
+
+const body = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.16, 0.5), gunBodyMat);
+weapon.add(body);
+
+const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.42, 16), gunAccentMat);
+barrel.rotation.x = Math.PI / 2;
+barrel.position.set(0, 0.04, -0.32);
+weapon.add(barrel);
+
+const grip = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.18, 0.12), gunBodyMat);
+grip.position.set(0, -0.16, 0.1);
+grip.rotation.x = 0.2;
+weapon.add(grip);
+
+const sight = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.05, 0.05), gunAccentMat);
+sight.position.set(0, 0.13, -0.05);
+weapon.add(sight);
+
+const muzzleFlash = new THREE.Mesh(
+  new THREE.ConeGeometry(0.12, 0.25, 12),
+  new THREE.MeshBasicMaterial({ color: 0xffcc66, transparent: true, opacity: 0 })
+);
+muzzleFlash.rotation.x = -Math.PI / 2;
+muzzleFlash.position.set(0, 0.04, -0.6);
+weapon.add(muzzleFlash);
+
+// ---------------------------------------------------------------------------
+// Enemies
+// ---------------------------------------------------------------------------
+const enemies = [];
+const enemyBodyMat = new THREE.MeshStandardMaterial({ color: 0x882020, roughness: 0.5, metalness: 0.2, emissive: 0x220505, emissiveIntensity: 0.4 });
+const enemyHeadMat = new THREE.MeshStandardMaterial({ color: 0xaa2828, roughness: 0.4, metalness: 0.3, emissive: 0x441010, emissiveIntensity: 0.6 });
+const enemyEyeMat = new THREE.MeshBasicMaterial({ color: 0xff4020 });
+
+function createEnemy(x, z, hp = 2) {
+  const g = new THREE.Group();
+  g.position.set(x, 0, z);
+
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.0, 0.5), enemyBodyMat);
+  body.position.y = 0.9;
+  body.castShadow = true;
+  body.receiveShadow = true;
+  g.add(body);
+
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.55, 0.55), enemyHeadMat);
+  head.position.y = 1.7;
+  head.castShadow = true;
+  head.receiveShadow = true;
+  g.add(head);
+
+  const eyeL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.04), enemyEyeMat);
+  eyeL.position.set(-0.14, 1.75, 0.28);
+  g.add(eyeL);
+  const eyeR = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.04), enemyEyeMat);
+  eyeR.position.set(0.14, 1.75, 0.28);
+  g.add(eyeR);
+
+  // Legs
+  const legGeo = new THREE.BoxGeometry(0.22, 0.7, 0.25);
+  const legL = new THREE.Mesh(legGeo, enemyBodyMat);
+  legL.position.set(-0.18, 0.35, 0);
+  legL.castShadow = true;
+  g.add(legL);
+  const legR = new THREE.Mesh(legGeo, enemyBodyMat);
+  legR.position.set(0.18, 0.35, 0);
+  legR.castShadow = true;
+  g.add(legR);
+
+  // Arms
+  const armGeo = new THREE.BoxGeometry(0.18, 0.7, 0.18);
+  const armL = new THREE.Mesh(armGeo, enemyBodyMat);
+  armL.position.set(-0.44, 0.95, 0);
+  armL.castShadow = true;
+  g.add(armL);
+  const armR = new THREE.Mesh(armGeo, enemyBodyMat);
+  armR.position.set(0.44, 0.95, 0);
+  armR.castShadow = true;
+  g.add(armR);
+
+  scene.add(g);
+
+  enemies.push({
+    group: g,
+    body,
+    head,
+    legL, legR,
+    hp,
+    maxHp: hp,
+    speed: 1.8 + Math.random() * 1.2,
+    attackCd: 0,
+    walkPhase: Math.random() * Math.PI * 2,
+    radius: 0.5,
+    dead: false,
   });
-  window.addEventListener('keyup', (e) => {
-    if (e.code === 'ArrowLeft'  || e.code === 'KeyA') keys.left  = false;
-    if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
-    if (e.code === 'ArrowUp'    || e.code === 'KeyW') keys.up    = false;
-    if (e.code === 'ArrowDown'  || e.code === 'KeyS') keys.down  = false;
-  });
+}
 
-  // ---------- Track building ----------
-  function easeIn(a, b, p)    { return a + (b - a) * Math.pow(p, 2); }
-  function easeInOut(a, b, p) { return a + (b - a) * (-Math.cos(p * Math.PI) / 2 + 0.5); }
+// ---------------------------------------------------------------------------
+// Bullets (visible tracer)
+// ---------------------------------------------------------------------------
+const bullets = [];
+const bulletGeo = new THREE.SphereGeometry(0.05, 8, 8);
+const bulletMat = new THREE.MeshBasicMaterial({ color: 0xffee88 });
 
-  function lastY() { return segments.length === 0 ? 0 : segments[segments.length - 1].p2.world.y; }
-
-  function addSegment(curve, y) {
-    const n = segments.length;
-    segments.push({
-      index: n,
-      p1: { world: { y: lastY(), z: n * SEGMENT_LENGTH }, camera: {}, screen: {} },
-      p2: { world: { y: y,        z: (n + 1) * SEGMENT_LENGTH }, camera: {}, screen: {} },
-      curve: curve,
-      cars: [],
-      sprites: [],
-      color: Math.floor(n / RUMBLE_LENGTH) % 2 ? COLORS.DARK : COLORS.LIGHT,
-    });
+// ---------------------------------------------------------------------------
+// Particles (impact / blood)
+// ---------------------------------------------------------------------------
+const particles = [];
+function spawnParticles(pos, color, count = 12, speed = 4) {
+  const geo = new THREE.SphereGeometry(0.07, 5, 5);
+  const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1 });
+  for (let i = 0; i < count; i++) {
+    const m = new THREE.Mesh(geo, mat.clone());
+    m.position.copy(pos);
+    const dir = new THREE.Vector3(
+      (Math.random() - 0.5),
+      Math.random(),
+      (Math.random() - 0.5)
+    ).normalize().multiplyScalar(speed * (0.5 + Math.random()));
+    scene.add(m);
+    particles.push({ mesh: m, vel: dir, life: 0.7 });
   }
+}
 
-  function addRoad(enter, hold, leave, curve, y) {
-    const startY = lastY();
-    const endY = startY + y * SEGMENT_LENGTH;
-    const total = enter + hold + leave;
-    for (let i = 0; i < enter; i++) addSegment(easeIn(0, curve, i / enter),         easeInOut(startY, endY, i / total));
-    for (let i = 0; i < hold;  i++) addSegment(curve,                                easeInOut(startY, endY, (enter + i) / total));
-    for (let i = 0; i < leave; i++) addSegment(easeInOut(curve, 0, i / leave),      easeInOut(startY, endY, (enter + hold + i) / total));
+// ---------------------------------------------------------------------------
+// Player state
+// ---------------------------------------------------------------------------
+const player = {
+  pos: new THREE.Vector3(0, 1.7, 0),
+  vel: new THREE.Vector3(),
+  yaw: 0,
+  pitch: 0,
+  onGround: true,
+  radius: 0.4,
+  height: 1.7,
+  speed: 6,
+  sprintMul: 1.6,
+  jumpVel: 7,
+  hp: 100,
+  maxHp: 100,
+  magSize: 30,
+  mag: 30,
+  reserve: 90,
+  reloading: false,
+  reloadTime: 0,
+  fireCd: 0,
+  fireRate: 0.11,
+  bobPhase: 0,
+};
+
+let score = 0;
+let wave = 0;
+let waveEnemiesRemaining = 0;
+let nextWaveTimer = 1.5;
+let gameRunning = false;
+let paused = false;
+
+const keys = new Set();
+let mouseDown = false;
+
+// ---------------------------------------------------------------------------
+// Input
+// ---------------------------------------------------------------------------
+function onKeyDown(e) {
+  if (!gameRunning) return;
+  const k = e.code;
+  keys.add(k);
+  if (k === 'KeyR') reload();
+  if (k === 'Escape') {
+    if (document.pointerLockElement) document.exitPointerLock();
   }
-
-  function addStraight(n) { addRoad(n, n, n, 0, 0); }
-  function addCurve(n, curve, height) { addRoad(n, n, n, curve, height); }
-  function addHill(n, height) { addRoad(n, n, n, 0, height); }
-  function addLowRollingHills(n, height) {
-    addRoad(n, n, n, 0,  height / 2);
-    addRoad(n, n, n, 0, -height);
-    addRoad(n, n, n, 0,  height);
-    addRoad(n, n, n, 0,  0);
-    addRoad(n, n, n, 0,  height / 2);
-    addRoad(n, n, n, 0,  0);
-  }
-  function addSCurves() {
-    addRoad(20, 20, 20, -2, 0);
-    addRoad(20, 20, 20,  3, 1.5);
-    addRoad(20, 20, 20, -3, 1);
-    addRoad(20, 20, 20,  2, -1.5);
-    addRoad(20, 20, 20, -2, 1);
-  }
-  function addBumps() {
-    addRoad(10, 10, 10, 0,  3);
-    addRoad(10, 10, 10, 0, -2);
-    addRoad(10, 10, 10, 0, -4);
-    addRoad(10, 10, 10, 0,  2);
-    addRoad(10, 10, 10, 0,  1);
-  }
-  function addDownhillToEnd() {
-    addRoad(200, 200, 200, -2, -8);
-  }
-
-  function resetRoad() {
-    segments = [];
-    addStraight(40);
-    addLowRollingHills(20, 30);
-    addSCurves();
-    addCurve(40, 2, 0);
-    addBumps();
-    addLowRollingHills(20, 40);
-    addCurve(80, -3, -2);
-    addStraight(30);
-    addCurve(60, 2, 1);
-    addSCurves();
-    addStraight(40);
-    addCurve(80, -4, 2);
-    addLowRollingHills(30, 50);
-    addStraight(30);
-    addDownhillToEnd();
-
-    // mark start/finish
-    segments[0].color = COLORS.START;
-    segments[1].color = COLORS.START;
-    for (let i = 0; i < RUMBLE_LENGTH; i++) {
-      segments[segments.length - 1 - i].color = COLORS.FINISH;
-    }
-    trackLength = segments.length * SEGMENT_LENGTH;
-
-    // place roadside sprites (dense, varied landscape)
-    const SPRITE_TYPES = ['palm', 'palm', 'tree', 'tree', 'tree', 'pine', 'pine', 'pine',
-                          'cactus', 'cactus', 'rock', 'rock', 'pylon', 'sign'];
-    for (let i = 10; i < segments.length; i += 1 + Math.floor(Math.random() * 3)) {
-      // left side
-      if (Math.random() < 0.7) {
-        const offset = -(1.2 + Math.random() * 2.5);
-        const type = SPRITE_TYPES[Math.floor(Math.random() * SPRITE_TYPES.length)];
-        segments[i].sprites.push({ source: type, offset });
-      }
-      // right side
-      if (Math.random() < 0.7) {
-        const offset = 1.2 + Math.random() * 2.5;
-        const type = SPRITE_TYPES[Math.floor(Math.random() * SPRITE_TYPES.length)];
-        segments[i].sprites.push({ source: type, offset });
-      }
-    }
-  }
-
-  function findSegment(z) {
-    return segments[Math.floor(z / SEGMENT_LENGTH) % segments.length];
-  }
-
-  // ---------- AI cars ----------
-  function resetCars() {
-    cars.length = 0;
-    const count = 50;
-    for (let i = 0; i < count; i++) {
-      const offset = (Math.random() * 2 - 1) * 0.8;
-      const z = Math.floor(Math.random() * segments.length) * SEGMENT_LENGTH;
-      const sp = MAX_SPEED / 4 + Math.random() * MAX_SPEED / 3;
-      const car = { offset, z, speed: sp, segment: null,
-                    color: `hsl(${Math.floor(Math.random() * 360)}, 75%, 55%)` };
-      car.segment = findSegment(car.z);
-      car.segment.cars.push(car);
-      cars.push(car);
-    }
-  }
-
-  function updateCars(dt) {
-    for (const car of cars) {
-      const oldSeg = car.segment;
-      car.z = (car.z + car.speed * dt) % trackLength;
-      if (car.z < 0) car.z += trackLength;
-      const newSeg = findSegment(car.z);
-      if (oldSeg !== newSeg) {
-        const idx = oldSeg.cars.indexOf(car);
-        if (idx >= 0) oldSeg.cars.splice(idx, 1);
-        newSeg.cars.push(car);
-        car.segment = newSeg;
-      }
-    }
-  }
-
-  // ---------- Math helpers ----------
-  function project(p, cameraX, cameraY, cameraZ, cameraDepth, width, height, roadWidth) {
-    p.camera.x = (p.world.x || 0) - cameraX;
-    p.camera.y = (p.world.y || 0) - cameraY;
-    p.camera.z = (p.world.z || 0) - cameraZ;
-    p.screen.scale = cameraDepth / p.camera.z;
-    p.screen.x = Math.round((width  / 2) + (p.screen.scale * p.camera.x * width  / 2));
-    p.screen.y = Math.round((height / 2) - (p.screen.scale * p.camera.y * height / 2));
-    p.screen.w = Math.round(p.screen.scale * roadWidth * width / 2);
-  }
-
-  function overlap(x1, w1, x2, w2, percent) {
-    const half = (percent || 1) / 2;
-    const min1 = x1 - w1 * half, max1 = x1 + w1 * half;
-    const min2 = x2 - w2 * half, max2 = x2 + w2 * half;
-    return !(max1 < min2 || min1 > max2);
-  }
-
-  // ---------- Rendering primitives ----------
-  // pre-generated star + cloud + skyline data so they don't flicker
-  const STARS = Array.from({ length: 80 }, () => ({
-    x: Math.random() * W,
-    y: Math.random() * H * 0.35,
-    r: Math.random() * 1.4 + 0.3,
-    a: Math.random() * 0.7 + 0.3,
-    tw: Math.random() * Math.PI * 2,
-  }));
-
-  const CLOUDS = Array.from({ length: 7 }, (_, i) => ({
-    x: (i * 180 + Math.random() * 120) % (W + 400) - 200,
-    y: 60 + Math.random() * 120,
-    s: 0.7 + Math.random() * 0.8,
-    drift: 0,
-  }));
-
-  const SKYLINE = (() => {
-    const buildings = [];
-    let x = 0;
-    while (x < W + 200) {
-      const w = 18 + Math.random() * 50;
-      const h = 30 + Math.random() * 90;
-      buildings.push({ x, w, h, windows: Math.random() < 0.7 });
-      x += w + 2 + Math.random() * 6;
-    }
-    return buildings;
-  })();
-
-  function drawSky() {
-    const grad = ctx.createLinearGradient(0, 0, 0, H * 0.7);
-    grad.addColorStop(0,    '#0a0420');
-    grad.addColorStop(0.25, '#2a0a48');
-    grad.addColorStop(0.5,  '#7a1a5e');
-    grad.addColorStop(0.7,  '#cc3a6f');
-    grad.addColorStop(0.88, '#ff8a3a');
-    grad.addColorStop(1,    '#ffd266');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, W, H);
-  }
-
-  function drawStars() {
-    for (const s of STARS) {
-      const flicker = 0.7 + 0.3 * Math.sin(elapsed * 3 + s.tw);
-      ctx.fillStyle = `rgba(255, 240, 220, ${s.a * flicker})`;
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  function drawClouds(cameraX) {
-    const parallax = -cameraX * 0.00005;
-    for (const c of CLOUDS) {
-      const cx = ((c.x + c.drift + parallax * 200) % (W + 400) + W + 400) % (W + 400) - 200;
-      const cy = c.y;
-      const s = c.s;
-      ctx.fillStyle = 'rgba(255, 200, 220, 0.35)';
-      ctx.beginPath();
-      ctx.ellipse(cx,           cy,       40 * s, 14 * s, 0, 0, Math.PI * 2);
-      ctx.ellipse(cx + 30 * s,  cy + 4,   30 * s, 12 * s, 0, 0, Math.PI * 2);
-      ctx.ellipse(cx - 28 * s,  cy + 5,   28 * s, 10 * s, 0, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  function drawSkyline(horizonY, cameraX) {
-    const parallax = -cameraX * 0.00015;
-    const baseY = horizonY + 6;
-    // silhouette behind mountains
-    ctx.fillStyle = '#0a061a';
-    for (const b of SKYLINE) {
-      const bx = ((b.x + parallax * 200) % (W + 200) + W + 200) % (W + 200) - 100;
-      ctx.fillRect(bx, baseY - b.h, b.w, b.h);
-      if (b.windows) {
-        ctx.fillStyle = 'rgba(255, 200, 100, 0.6)';
-        for (let wy = baseY - b.h + 6; wy < baseY - 4; wy += 8) {
-          for (let wx = bx + 3; wx < bx + b.w - 4; wx += 6) {
-            if (((wx + wy) | 0) % 13 < 7) ctx.fillRect(wx, wy, 2, 3);
-          }
-        }
-        ctx.fillStyle = '#0a061a';
-      }
-    }
-  }
-
-  function drawSun(horizonY) {
-    const cx = W * 0.5;
-    const cy = horizonY + 30;
-    const r = 110;
-
-    const halo = ctx.createRadialGradient(cx, cy, r * 0.4, cx, cy, r * 2.2);
-    halo.addColorStop(0, 'rgba(255, 220, 120, 0.6)');
-    halo.addColorStop(1, 'rgba(255, 100, 80, 0)');
-    ctx.fillStyle = halo;
-    ctx.fillRect(cx - r * 2.2, cy - r * 2.2, r * 4.4, r * 4.4);
-
-    const sun = ctx.createLinearGradient(cx, cy - r, cx, cy + r);
-    sun.addColorStop(0,    '#fff2b0');
-    sun.addColorStop(0.5,  '#ffaa44');
-    sun.addColorStop(1,    '#ff3a66');
-    ctx.fillStyle = sun;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fill();
-
-    // retro horizontal slits
-    ctx.fillStyle = '#1a0a2e';
-    const slitHeights = [4, 5, 6, 8, 10];
-    let yy = cy + r * 0.25;
-    for (const sh of slitHeights) {
-      const dx = Math.sqrt(Math.max(0, r * r - (yy - cy) * (yy - cy)));
-      ctx.fillRect(cx - dx, yy, dx * 2, sh);
-      yy += sh + 6;
-    }
-  }
-
-  function drawMountains(horizonY, cameraX) {
-    ctx.save();
-    const parallax = -cameraX * 0.0002;
-    // back range
-    ctx.fillStyle = '#3a1850';
-    ctx.beginPath();
-    ctx.moveTo(0, horizonY);
-    const peaks1 = [0, 120, 260, 380, 520, 680, 820, 960, 1024];
-    const heights1 = [40, 90, 60, 110, 75, 95, 50, 80, 60];
-    for (let i = 0; i < peaks1.length; i++) {
-      ctx.lineTo(peaks1[i] + parallax * 60, horizonY - heights1[i]);
-    }
-    ctx.lineTo(W, horizonY);
-    ctx.closePath();
-    ctx.fill();
-
-    // front range darker
-    ctx.fillStyle = '#1f0a35';
-    ctx.beginPath();
-    ctx.moveTo(0, horizonY + 4);
-    const peaks2 = [0, 80, 200, 320, 430, 590, 720, 880, 1024];
-    const heights2 = [25, 55, 35, 70, 40, 65, 30, 50, 35];
-    for (let i = 0; i < peaks2.length; i++) {
-      ctx.lineTo(peaks2[i] + parallax * 120, horizonY - heights2[i] + 8);
-    }
-    ctx.lineTo(W, horizonY + 4);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-  }
-
-  function drawSegment(x1, y1, w1, x2, y2, w2, color, isLight) {
-    // grass
-    ctx.fillStyle = color.grass;
-    ctx.fillRect(0, y2, W, y1 - y2);
-
-    // road (trapezoid)
-    polygon(x1 - w1, y1, x1 + w1, y1, x2 + w2, y2, x2 - w2, y2, color.road);
-
-    // rumble strips
-    const r1 = w1 / Math.max(6, 2 * LANES);
-    const r2 = w2 / Math.max(6, 2 * LANES);
-    polygon(x1 - w1 - r1, y1, x1 - w1, y1, x2 - w2, y2, x2 - w2 - r2, y2, color.rumble);
-    polygon(x1 + w1 + r1, y1, x1 + w1, y1, x2 + w2, y2, x2 + w2 + r2, y2, color.rumble);
-
-    // lane markers
-    if (isLight) {
-      const lw1 = (w1 / Math.max(32, 8 * LANES));
-      const lw2 = (w2 / Math.max(32, 8 * LANES));
-      const lanew1 = w1 * 2 / LANES;
-      const lanew2 = w2 * 2 / LANES;
-      let lx1 = x1 - w1 + lanew1;
-      let lx2 = x2 - w2 + lanew2;
-      for (let l = 1; l < LANES; l++) {
-        polygon(lx1 - lw1 / 2, y1, lx1 + lw1 / 2, y1,
-                lx2 + lw2 / 2, y2, lx2 - lw2 / 2, y2, color.lane);
-        lx1 += lanew1; lx2 += lanew2;
-      }
-    }
-  }
-
-  function polygon(x1, y1, x2, y2, x3, y3, x4, y4, color) {
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
-    ctx.lineTo(x3, y3); ctx.lineTo(x4, y4);
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  // ---------- Sprite drawing ----------
-  function drawCarSprite(x, y, scale, color, isPlayer) {
-    // Lamborghini-style wedge supercar, rear 3/4 view
-    const w = 130 * scale;
-    const h = 56 * scale;
-    if (w < 2 || h < 2) return;
-    const cx = x;
-    const baseY = y;
-    const topY = y - h;
-
-    // ground shadow
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.beginPath();
-    ctx.ellipse(cx, baseY + 2 * scale, w * 0.58, h * 0.18, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // rear wheel arches (wider than front)
-    ctx.fillStyle = '#0a0a0a';
-    polygonPath([
-      [cx - w * 0.50, baseY - h * 0.05],
-      [cx - w * 0.50, baseY - h * 0.32],
-      [cx - w * 0.32, baseY - h * 0.38],
-      [cx - w * 0.32, baseY - h * 0.02],
-    ]);
-    ctx.fill();
-    polygonPath([
-      [cx + w * 0.50, baseY - h * 0.05],
-      [cx + w * 0.50, baseY - h * 0.32],
-      [cx + w * 0.32, baseY - h * 0.38],
-      [cx + w * 0.32, baseY - h * 0.02],
-    ]);
-    ctx.fill();
-
-    // wheels with rim highlight
-    drawWheel(cx - w * 0.44, baseY - h * 0.08, w * 0.10, h * 0.20);
-    drawWheel(cx + w * 0.44, baseY - h * 0.08, w * 0.10, h * 0.20);
-    // front wheels (narrower, more inset)
-    drawWheel(cx - w * 0.36, baseY - h * 0.05, w * 0.07, h * 0.14);
-    drawWheel(cx + w * 0.36, baseY - h * 0.05, w * 0.07, h * 0.14);
-
-    // main body - wedge shape (wide at rear, narrows toward front)
-    const body = ctx.createLinearGradient(cx, topY, cx, baseY);
-    body.addColorStop(0,   shade(color, 1.45));
-    body.addColorStop(0.4, color);
-    body.addColorStop(1,   shade(color, 0.55));
-    ctx.fillStyle = body;
-    polygonPath([
-      [cx - w * 0.48, baseY - h * 0.10],   // rear-left bottom
-      [cx - w * 0.50, baseY - h * 0.35],   // rear-left top of fender
-      [cx - w * 0.42, baseY - h * 0.55],   // shoulder
-      [cx - w * 0.28, baseY - h * 0.72],   // roofline rise
-      [cx - w * 0.08, baseY - h * 0.88],   // roof rear
-      [cx + w * 0.08, baseY - h * 0.88],   // roof front
-      [cx + w * 0.28, baseY - h * 0.72],
-      [cx + w * 0.42, baseY - h * 0.55],
-      [cx + w * 0.50, baseY - h * 0.35],
-      [cx + w * 0.48, baseY - h * 0.10],
-    ]);
-    ctx.fill();
-
-    // angular side strake / belt line
-    ctx.fillStyle = shade(color, 0.45);
-    polygonPath([
-      [cx - w * 0.46, baseY - h * 0.30],
-      [cx - w * 0.20, baseY - h * 0.42],
-      [cx + w * 0.20, baseY - h * 0.42],
-      [cx + w * 0.46, baseY - h * 0.30],
-      [cx + w * 0.44, baseY - h * 0.26],
-      [cx - w * 0.44, baseY - h * 0.26],
-    ]);
-    ctx.fill();
-
-    // angular windshield / cabin glass (hexagonal Aventador shape)
-    const ws = ctx.createLinearGradient(cx, topY, cx, baseY - h * 0.4);
-    ws.addColorStop(0, '#0a1a30');
-    ws.addColorStop(0.5, '#2a4a6a');
-    ws.addColorStop(1, '#6090b8');
-    ctx.fillStyle = ws;
-    polygonPath([
-      [cx - w * 0.22, baseY - h * 0.62],
-      [cx - w * 0.10, baseY - h * 0.82],
-      [cx + w * 0.10, baseY - h * 0.82],
-      [cx + w * 0.22, baseY - h * 0.62],
-      [cx + w * 0.20, baseY - h * 0.58],
-      [cx - w * 0.20, baseY - h * 0.58],
-    ]);
-    ctx.fill();
-
-    // roof highlight stripe
-    ctx.fillStyle = 'rgba(255,255,255,0.25)';
-    polygonPath([
-      [cx - w * 0.06, baseY - h * 0.86],
-      [cx + w * 0.06, baseY - h * 0.86],
-      [cx + w * 0.04, baseY - h * 0.80],
-      [cx - w * 0.04, baseY - h * 0.80],
-    ]);
-    ctx.fill();
-
-    // rear wing
-    ctx.fillStyle = shade(color, 0.35);
-    ctx.fillRect(cx - w * 0.40, baseY - h * 0.62, w * 0.80, h * 0.05);
-    ctx.fillStyle = '#0a0a0a';
-    ctx.fillRect(cx - w * 0.40, baseY - h * 0.58, 4 * scale, h * 0.18);
-    ctx.fillRect(cx + w * 0.40 - 4 * scale, baseY - h * 0.58, 4 * scale, h * 0.18);
-
-    // rear diffuser & quad exhausts
-    ctx.fillStyle = '#050505';
-    polygonPath([
-      [cx - w * 0.30, baseY - h * 0.10],
-      [cx + w * 0.30, baseY - h * 0.10],
-      [cx + w * 0.26, baseY - h * 0.02],
-      [cx - w * 0.26, baseY - h * 0.02],
-    ]);
-    ctx.fill();
-    ctx.fillStyle = '#2a2a2a';
-    for (let i = -1.5; i <= 1.5; i += 1) {
-      const ex = cx + i * w * 0.06;
-      ctx.fillRect(ex - w * 0.02, baseY - h * 0.09, w * 0.04, h * 0.05);
-    }
-
-    // taillights - slim Y-shaped LED bars (Aventador style)
-    if (!isPlayer) {
-      // glow halo
-      const glow = ctx.createRadialGradient(cx, baseY - h * 0.30, 0, cx, baseY - h * 0.30, w * 0.55);
-      glow.addColorStop(0, 'rgba(255, 40, 60, 0.55)');
-      glow.addColorStop(1, 'rgba(255, 40, 60, 0)');
-      ctx.fillStyle = glow;
-      ctx.fillRect(cx - w * 0.6, baseY - h * 0.6, w * 1.2, h * 0.6);
-    }
-    // LED bar geometry (same shape player + AI; bright red)
-    ctx.fillStyle = isPlayer ? '#ff4060' : '#ff1030';
-    // left bar
-    polygonPath([
-      [cx - w * 0.42, baseY - h * 0.32],
-      [cx - w * 0.22, baseY - h * 0.32],
-      [cx - w * 0.24, baseY - h * 0.28],
-      [cx - w * 0.42, baseY - h * 0.28],
-    ]);
-    ctx.fill();
-    polygonPath([
-      [cx + w * 0.42, baseY - h * 0.32],
-      [cx + w * 0.22, baseY - h * 0.32],
-      [cx + w * 0.24, baseY - h * 0.28],
-      [cx + w * 0.42, baseY - h * 0.28],
-    ]);
-    ctx.fill();
-    // bright LED core
-    ctx.fillStyle = '#fff080';
-    ctx.fillRect(cx - w * 0.40, baseY - h * 0.31, w * 0.16, 1.5 * scale);
-    ctx.fillRect(cx + w * 0.24, baseY - h * 0.31, w * 0.16, 1.5 * scale);
-
-    // Lambo badge hint (small triangle) on rear deck
-    ctx.fillStyle = '#ffd060';
-    polygonPath([
-      [cx, baseY - h * 0.50],
-      [cx - 3 * scale, baseY - h * 0.45],
-      [cx + 3 * scale, baseY - h * 0.45],
-    ]);
-    ctx.fill();
-  }
-
-  function drawWheel(wx, wy, ww, wh) {
-    ctx.fillStyle = '#050505';
-    ctx.beginPath();
-    ctx.ellipse(wx, wy, ww, wh, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#3a3a40';
-    ctx.beginPath();
-    ctx.ellipse(wx, wy, ww * 0.55, wh * 0.55, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#0a0a0a';
-    ctx.beginPath();
-    ctx.ellipse(wx, wy, ww * 0.2, wh * 0.2, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  function polygonPath(pts) {
-    ctx.beginPath();
-    ctx.moveTo(pts[0][0], pts[0][1]);
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
-    ctx.closePath();
-  }
-
-  function drawPalm(x, y, scale) {
-    const trunkH = 90 * scale;
-    const trunkW = 8 * scale;
-    if (trunkH < 2) return;
-    // trunk
-    const g = ctx.createLinearGradient(x - trunkW, y, x + trunkW, y);
-    g.addColorStop(0, '#3a2010');
-    g.addColorStop(0.5, '#6b3a18');
-    g.addColorStop(1, '#3a2010');
-    ctx.fillStyle = g;
-    ctx.fillRect(x - trunkW / 2, y - trunkH, trunkW, trunkH);
-    // fronds
-    ctx.fillStyle = '#1a1230';
-    const top = y - trunkH;
-    const frondR = 38 * scale;
-    for (let a = 0; a < 7; a++) {
-      const ang = (a / 7) * Math.PI * 2;
-      ctx.beginPath();
-      ctx.ellipse(x + Math.cos(ang) * frondR * 0.6,
-                  top + Math.sin(ang) * frondR * 0.4,
-                  frondR, frondR * 0.25, ang, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    // crown
-    ctx.fillStyle = '#0a0a1a';
-    ctx.beginPath();
-    ctx.arc(x, top, 6 * scale, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  function drawPylon(x, y, scale) {
-    const h = 28 * scale;
-    if (h < 2) return;
-    ctx.fillStyle = '#ff6020';
-    ctx.beginPath();
-    ctx.moveTo(x, y - h);
-    ctx.lineTo(x - h * 0.4, y);
-    ctx.lineTo(x + h * 0.4, y);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(x - h * 0.3, y - h * 0.55, h * 0.6, h * 0.12);
-  }
-
-  function drawCactus(x, y, scale) {
-    const h = 70 * scale;
-    const w = 14 * scale;
-    if (h < 2) return;
-    ctx.fillStyle = '#1a4030';
-    // main body
-    roundRect(x - w / 2, y - h, w, h, w * 0.4, '#1a4030');
-    // left arm
-    ctx.fillRect(x - w * 1.8, y - h * 0.6, w * 0.6, h * 0.35);
-    ctx.fillRect(x - w * 1.8, y - h * 0.7, w * 0.6 + w * 0.6, w * 0.5);
-    // right arm
-    ctx.fillRect(x + w * 1.2, y - h * 0.5, w * 0.6, h * 0.4);
-    ctx.fillRect(x + w * 0.4, y - h * 0.5, w * 1.4, w * 0.5);
-    // highlight
-    ctx.fillStyle = '#2a6048';
-    ctx.fillRect(x - w * 0.3, y - h + 2 * scale, w * 0.2, h - 4 * scale);
-  }
-
-  function drawRock(x, y, scale) {
-    const r = 24 * scale;
-    if (r < 2) return;
-    const g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.6, r * 0.2, x, y - r * 0.3, r);
-    g.addColorStop(0, '#7a6a80');
-    g.addColorStop(1, '#2a1f3a');
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.moveTo(x - r,         y);
-    ctx.lineTo(x - r * 0.7,   y - r * 0.6);
-    ctx.lineTo(x - r * 0.2,   y - r * 0.9);
-    ctx.lineTo(x + r * 0.4,   y - r * 0.8);
-    ctx.lineTo(x + r,         y - r * 0.3);
-    ctx.lineTo(x + r * 0.6,   y);
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  function drawBush(x, y, scale) {
-    const r = 18 * scale;
-    if (r < 2) return;
-    ctx.fillStyle = '#1a3a25';
-    ctx.beginPath();
-    ctx.arc(x - r * 0.5, y - r * 0.4, r * 0.7, 0, Math.PI * 2);
-    ctx.arc(x + r * 0.4, y - r * 0.5, r * 0.6, 0, Math.PI * 2);
-    ctx.arc(x,           y - r * 0.8, r * 0.6, 0, Math.PI * 2);
-    ctx.arc(x - r * 0.1, y - r * 0.3, r * 0.7, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#2a5a3a';
-    ctx.beginPath();
-    ctx.arc(x - r * 0.3, y - r * 0.7, r * 0.2, 0, Math.PI * 2);
-    ctx.arc(x + r * 0.2, y - r * 0.6, r * 0.18, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  function drawTree(x, y, scale) {
-    const trunkH = 30 * scale;
-    const trunkW = 8 * scale;
-    if (trunkH < 2) return;
-    // trunk
-    ctx.fillStyle = '#3a2010';
-    ctx.fillRect(x - trunkW / 2, y - trunkH, trunkW, trunkH);
-    // foliage - layered green puffs
-    const top = y - trunkH;
-    const r = 32 * scale;
-    ctx.fillStyle = '#0f3320';
-    ctx.beginPath();
-    ctx.arc(x - r * 0.5, top - r * 0.2, r * 0.7, 0, Math.PI * 2);
-    ctx.arc(x + r * 0.4, top - r * 0.3, r * 0.65, 0, Math.PI * 2);
-    ctx.arc(x,           top - r * 0.7, r * 0.7, 0, Math.PI * 2);
-    ctx.arc(x - r * 0.2, top - r * 0.4, r * 0.7, 0, Math.PI * 2);
-    ctx.fill();
-    // highlight
-    ctx.fillStyle = '#2a6a3a';
-    ctx.beginPath();
-    ctx.arc(x - r * 0.3, top - r * 0.7, r * 0.25, 0, Math.PI * 2);
-    ctx.arc(x + r * 0.1, top - r * 0.5, r * 0.2,  0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  function drawPine(x, y, scale) {
-    const h = 75 * scale;
-    const w = 30 * scale;
-    if (h < 2) return;
-    // trunk
-    ctx.fillStyle = '#3a2010';
-    ctx.fillRect(x - 3 * scale, y - h * 0.18, 6 * scale, h * 0.18);
-    // three layered triangles
-    const layers = 3;
-    for (let i = 0; i < layers; i++) {
-      const ly = y - h * 0.18 - i * (h * 0.28);
-      const lw = w * (1 - i * 0.18);
-      const lh = h * 0.42;
-      ctx.fillStyle = i === layers - 1 ? '#0a4a28' : '#0e5a30';
-      ctx.beginPath();
-      ctx.moveTo(x,           ly - lh);
-      ctx.lineTo(x - lw / 2,  ly);
-      ctx.lineTo(x + lw / 2,  ly);
-      ctx.closePath();
-      ctx.fill();
-      // highlight
-      ctx.fillStyle = 'rgba(120, 200, 130, 0.35)';
-      ctx.beginPath();
-      ctx.moveTo(x,            ly - lh);
-      ctx.lineTo(x - lw * 0.15, ly - lh * 0.5);
-      ctx.lineTo(x - lw * 0.05, ly - lh * 0.3);
-      ctx.closePath();
-      ctx.fill();
-    }
-  }
-
-  function drawSign(x, y, scale) {
-    const w = 50 * scale, h = 36 * scale;
-    if (h < 2) return;
-    ctx.fillStyle = '#2a1a0a';
-    ctx.fillRect(x - 3 * scale, y - 60 * scale, 6 * scale, 60 * scale);
-    ctx.fillStyle = '#ff3a6a';
-    ctx.fillRect(x - w / 2, y - 80 * scale, w, h);
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(x - w / 2 + 4 * scale, y - 80 * scale + 4 * scale, w - 8 * scale, 4 * scale);
-    ctx.fillRect(x - w / 2 + 4 * scale, y - 80 * scale + 14 * scale, w - 14 * scale, 4 * scale);
-    ctx.fillRect(x - w / 2 + 4 * scale, y - 80 * scale + 24 * scale, w - 8 * scale, 4 * scale);
-  }
-
-  function roundRect(x, y, w, h, r, fill) {
-    r = Math.min(r, w / 2, h / 2);
-    ctx.fillStyle = fill;
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.lineTo(x + w - r, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-    ctx.lineTo(x + w, y + h - r);
-    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-    ctx.lineTo(x + r, y + h);
-    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-    ctx.lineTo(x, y + r);
-    ctx.quadraticCurveTo(x, y, x + r, y);
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  function shade(hexOrHsl, amt) {
-    // works for hsl(...) by adjusting lightness; for hex by mixing
-    if (hexOrHsl.startsWith('hsl')) {
-      const m = hexOrHsl.match(/hsl\((\d+),\s*(\d+)%?,\s*(\d+)%?\)/);
-      if (m) {
-        const h = +m[1], s = +m[2], l = Math.max(0, Math.min(100, +m[3] * amt));
-        return `hsl(${h}, ${s}%, ${l}%)`;
-      }
-    }
-    if (hexOrHsl.startsWith('#')) {
-      const c = hexOrHsl.substring(1);
-      const r = Math.min(255, Math.floor(parseInt(c.substr(0,2),16) * amt));
-      const g = Math.min(255, Math.floor(parseInt(c.substr(2,2),16) * amt));
-      const b = Math.min(255, Math.floor(parseInt(c.substr(4,2),16) * amt));
-      return `rgb(${r},${g},${b})`;
-    }
-    return hexOrHsl;
-  }
-
-  // ---------- Main render ----------
-  function render() {
-    const baseSegment = findSegment(position);
-    const basePercent = (position % SEGMENT_LENGTH) / SEGMENT_LENGTH;
-    const playerSegment = findSegment(position);
-    const playerY = baseSegment.p1.world.y +
-      (baseSegment.p2.world.y - baseSegment.p1.world.y) * basePercent;
-    const cameraX = playerX * ROAD_WIDTH;
-    const cameraY = playerY + CAMERA_HEIGHT;
-
-    // Sky / sun / mountains. Horizon Y rough estimate.
-    drawSky();
-    const horizonY = H * 0.5;
-    drawStars();
-    drawClouds(cameraX);
-    drawSun(horizonY);
-    drawSkyline(horizonY, cameraX);
-    drawMountains(horizonY, cameraX);
-
-    let maxY = H;
-    let x = 0;
-    let dx = -(baseSegment.curve * basePercent);
-
-    // Draw road segments
-    for (let n = 0; n < DRAW_DISTANCE; n++) {
-      const segment = segments[(baseSegment.index + n) % segments.length];
-      segment.looped = segment.index < baseSegment.index;
-      segment.clip = maxY;
-
-      project(segment.p1, cameraX - x,         cameraY, position - (segment.looped ? trackLength : 0),
-              CAMERA_DEPTH, W, H, ROAD_WIDTH);
-      project(segment.p2, cameraX - x - dx,    cameraY, position - (segment.looped ? trackLength : 0),
-              CAMERA_DEPTH, W, H, ROAD_WIDTH);
-
-      x += dx;
-      dx += segment.curve;
-
-      if (segment.p1.camera.z <= CAMERA_DEPTH ||
-          segment.p2.screen.y >= segment.p1.screen.y ||
-          segment.p2.screen.y >= maxY) {
-        continue;
-      }
-
-      const isLight = Math.floor(segment.index / RUMBLE_LENGTH) % 2 === 0;
-      drawSegment(
-        segment.p1.screen.x, segment.p1.screen.y, segment.p1.screen.w,
-        segment.p2.screen.x, segment.p2.screen.y, segment.p2.screen.w,
-        segment.color, isLight
-      );
-      maxY = segment.p2.screen.y;
-    }
-
-    // Draw sprites & cars back-to-front
-    for (let n = DRAW_DISTANCE - 1; n >= 0; n--) {
-      const segment = segments[(baseSegment.index + n) % segments.length];
-
-      for (const sprite of segment.sprites) {
-        const spriteScale = segment.p1.screen.scale;
-        const spriteX = segment.p1.screen.x + (spriteScale * sprite.offset * ROAD_WIDTH * W / 2);
-        const spriteY = segment.p1.screen.y;
-        const sz = spriteScale * 1000;
-        if (sprite.source === 'palm')   drawPalm(spriteX, spriteY, sz);
-        if (sprite.source === 'pylon')  drawPylon(spriteX, spriteY, sz);
-        if (sprite.source === 'sign')   drawSign(spriteX, spriteY, sz);
-        if (sprite.source === 'cactus') drawCactus(spriteX, spriteY, sz);
-        if (sprite.source === 'rock')   drawRock(spriteX, spriteY, sz);
-        if (sprite.source === 'bush')   drawBush(spriteX, spriteY, sz);
-        if (sprite.source === 'tree')   drawTree(spriteX, spriteY, sz);
-        if (sprite.source === 'pine')   drawPine(spriteX, spriteY, sz);
-      }
-
-      for (const car of segment.cars) {
-        const carPercent = ((car.z - segment.p1.world.z) / SEGMENT_LENGTH);
-        const sx = segment.p1.screen.x + (segment.p2.screen.x - segment.p1.screen.x) * carPercent;
-        const sy = segment.p1.screen.y + (segment.p2.screen.y - segment.p1.screen.y) * carPercent;
-        const sScale = segment.p1.screen.scale +
-                       (segment.p2.screen.scale - segment.p1.screen.scale) * carPercent;
-        const screenX = sx + (sScale * car.offset * ROAD_WIDTH * W / 2);
-        drawCarSprite(screenX, sy, sScale * 3500, car.color, false);
-      }
-    }
-
-    // Player car (fixed position)
-    drawPlayer();
-
-    // Vignette
-    const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.4, W / 2, H / 2, H * 0.85);
-    vg.addColorStop(0, 'rgba(0,0,0,0)');
-    vg.addColorStop(1, 'rgba(0,0,0,0.55)');
-    ctx.fillStyle = vg;
-    ctx.fillRect(0, 0, W, H);
-  }
-
-  function drawPlayer() {
-    const px = W / 2;
-    const py = H - 80;
-    // wobble based on speed & steering
-    const bob = Math.sin(elapsed * 16) * (speed / MAX_SPEED) * 2;
-    const lean = (keys.left ? -6 : 0) + (keys.right ? 6 : 0);
-
-    ctx.save();
-    ctx.translate(px + lean, py + bob);
-    drawCarSprite(0, 0, 2.2, '#ff2050', true);
-    ctx.restore();
-
-    // motion lines at high speed
-    if (speed > MAX_SPEED * 0.5) {
-      ctx.strokeStyle = `rgba(255,255,255,${(speed / MAX_SPEED - 0.5) * 0.5})`;
-      ctx.lineWidth = 2;
-      for (let i = 0; i < 8; i++) {
-        const yy = H - (Math.random() * H * 0.7);
-        const len = 20 + Math.random() * 60;
-        const xx = Math.random() < 0.5 ? Math.random() * (W / 2 - 100) : W / 2 + 100 + Math.random() * (W / 2 - 100);
-        ctx.beginPath();
-        ctx.moveTo(xx, yy);
-        ctx.lineTo(xx, yy + len);
-        ctx.stroke();
-      }
-    }
-  }
-
-  // ---------- Update ----------
-  function update(dt) {
-    if (gameOver || paused) return;
-
-    elapsed += dt;
-    updateCars(dt);
-
-    const speedPct = speed / MAX_SPEED;
-    const dx_steer = dt * 2 * speedPct;
-
-    position = (position + dt * speed) % trackLength;
-    if (position < 0) position += trackLength;
-
-    const playerSegment = findSegment(position);
-
-    if (keys.left)  playerX -= dx_steer;
-    if (keys.right) playerX += dx_steer;
-
-    // centrifugal force on curves
-    playerX -= dx_steer * speedPct * playerSegment.curve * CENTRIFUGAL;
-
-    if (keys.up)        speed += ACCEL * dt;
-    else if (keys.down) speed += BRAKING * dt;
-    else                speed += DECEL * dt;
-
-    // offroad
-    if ((playerX < -1 || playerX > 1) && speed > OFFROAD_LIMIT) {
-      speed += OFFROAD_DECEL * dt;
-    }
-
-    // car collisions
-    if (speed > 50) {
-      for (const car of playerSegment.cars) {
-        if (overlap(playerX, 0.8, car.offset, 0.8, 0.6)) {
-          triggerCrash();
-          return;
-        }
-      }
-    }
-
-    playerX = Math.max(-2, Math.min(2, playerX));
-    speed = Math.max(0, Math.min(MAX_SPEED, speed));
-
-    // score
-    score += Math.floor(speed * dt * 0.01);
-
-    // HUD
-    document.getElementById('speed').textContent = Math.floor(speed / MAX_SPEED * 500);
-    document.getElementById('score').textContent = score;
-    document.getElementById('time').textContent = elapsed.toFixed(1);
-  }
-
-  function triggerCrash() {
-    gameOver = true;
-    speed = 0;
-    document.getElementById('final-score').textContent = score;
-    document.getElementById('gameover').classList.remove('hidden');
-    document.getElementById('gameover').classList.add('visible');
-  }
-
-  // ---------- Loop ----------
-  function frame(t) {
-    if (!lastTime) lastTime = t;
-    const dt = Math.min(0.05, (t - lastTime) / 1000);
-    lastTime = t;
-
-    if (running) {
-      update(dt);
-      render();
-    }
-    requestAnimationFrame(frame);
-  }
-
-  // ---------- Boot ----------
-  function startGame() {
-    resetRoad();
-    resetCars();
-    position = 0;
-    playerX = 0;
-    speed = 0;
-    score = 0;
-    elapsed = 0;
-    gameOver = false;
+}
+function onKeyUp(e) { keys.delete(e.code); }
+
+window.addEventListener('keydown', onKeyDown);
+window.addEventListener('keyup', onKeyUp);
+
+renderer.domElement.addEventListener('mousedown', (e) => {
+  if (!gameRunning) return;
+  if (e.button === 0) mouseDown = true;
+});
+window.addEventListener('mouseup', (e) => {
+  if (e.button === 0) mouseDown = false;
+});
+
+document.addEventListener('mousemove', (e) => {
+  if (!gameRunning || document.pointerLockElement !== renderer.domElement) return;
+  const sens = 0.0025;
+  player.yaw -= e.movementX * sens;
+  player.pitch -= e.movementY * sens;
+  const maxPitch = Math.PI / 2 - 0.05;
+  if (player.pitch > maxPitch) player.pitch = maxPitch;
+  if (player.pitch < -maxPitch) player.pitch = -maxPitch;
+});
+
+document.addEventListener('pointerlockchange', () => {
+  if (document.pointerLockElement === renderer.domElement) {
     paused = false;
-    running = true;
-    document.getElementById('overlay').classList.add('hidden');
-    document.getElementById('overlay').classList.remove('visible');
-    document.getElementById('gameover').classList.add('hidden');
-    document.getElementById('gameover').classList.remove('visible');
+    crosshair.classList.add('active');
+  } else {
+    if (gameRunning) {
+      paused = true;
+      overlay.classList.remove('hidden');
+      startBtn.textContent = 'WEITERSPIELEN';
+    }
+    crosshair.classList.remove('active');
+  }
+});
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ---------------------------------------------------------------------------
+// Start / restart
+// ---------------------------------------------------------------------------
+startBtn.addEventListener('click', () => {
+  if (!gameRunning) startGame();
+  else {
+    paused = false;
+    overlay.classList.add('hidden');
+    renderer.domElement.requestPointerLock();
+  }
+});
+restartBtn.addEventListener('click', () => {
+  gameOverEl.classList.add('hidden');
+  startGame();
+});
+
+function startGame() {
+  // Reset state
+  player.pos.set(0, 1.7, 0);
+  player.vel.set(0, 0, 0);
+  player.yaw = 0;
+  player.pitch = 0;
+  player.hp = player.maxHp;
+  player.mag = player.magSize;
+  player.reserve = 90;
+  player.reloading = false;
+  player.fireCd = 0;
+
+  for (const e of enemies) scene.remove(e.group);
+  enemies.length = 0;
+
+  for (const b of bullets) scene.remove(b.mesh);
+  bullets.length = 0;
+
+  for (const p of particles) scene.remove(p.mesh);
+  particles.length = 0;
+
+  score = 0;
+  wave = 0;
+  waveEnemiesRemaining = 0;
+  nextWaveTimer = 1.5;
+
+  updateHUD();
+  gameRunning = true;
+  paused = false;
+  overlay.classList.add('hidden');
+  startBtn.textContent = 'WEITERSPIELEN';
+  renderer.domElement.requestPointerLock();
+}
+
+function endGame(won = false) {
+  gameRunning = false;
+  paused = true;
+  if (document.pointerLockElement) document.exitPointerLock();
+  endTitleEl.textContent = won ? 'SIEG!' : 'GAME OVER';
+  finalScoreEl.textContent = score;
+  finalWaveEl.textContent = wave;
+  gameOverEl.classList.remove('hidden');
+}
+
+// ---------------------------------------------------------------------------
+// Wave spawning
+// ---------------------------------------------------------------------------
+function spawnWave() {
+  wave++;
+  const count = 3 + wave * 2;
+  waveEnemiesRemaining = count;
+  for (let i = 0; i < count; i++) {
+    // spawn at random angle on outer ring
+    const a = Math.random() * Math.PI * 2;
+    const r = 25 + Math.random() * 25;
+    const x = Math.cos(a) * r;
+    const z = Math.sin(a) * r;
+    const hp = 2 + Math.floor(wave / 2);
+    createEnemy(x, z, hp);
+  }
+  waveEl.textContent = wave;
+}
+
+// ---------------------------------------------------------------------------
+// Combat
+// ---------------------------------------------------------------------------
+function reload() {
+  if (player.reloading || player.mag === player.magSize || player.reserve <= 0) return;
+  player.reloading = true;
+  player.reloadTime = 1.4;
+}
+
+function tryFire() {
+  if (player.fireCd > 0 || player.reloading) return;
+  if (player.mag <= 0) { reload(); return; }
+  player.fireCd = player.fireRate;
+  player.mag--;
+  updateHUD();
+
+  // Spawn tracer bullet
+  const origin = new THREE.Vector3();
+  weapon.getWorldPosition(origin);
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+  // Slight spread
+  dir.x += (Math.random() - 0.5) * 0.005;
+  dir.y += (Math.random() - 0.5) * 0.005;
+  dir.normalize();
+
+  const m = new THREE.Mesh(bulletGeo, bulletMat);
+  m.position.copy(origin);
+  scene.add(m);
+  bullets.push({ mesh: m, vel: dir.clone().multiplyScalar(120), life: 1.5, dir: dir.clone() });
+
+  // Muzzle flash
+  muzzleFlash.material.opacity = 1;
+  muzzleLight.intensity = 4;
+
+  // Recoil kick
+  player.pitch += 0.012;
+  weapon.position.z = -0.5;
+
+  // Hitscan against enemies (for reliability)
+  const ray = new THREE.Raycaster(origin, dir, 0.1, 200);
+  let closest = null;
+  let closestDist = Infinity;
+
+  for (const e of enemies) {
+    if (e.dead) continue;
+    const hits = ray.intersectObject(e.group, true);
+    if (hits.length && hits[0].distance < closestDist) {
+      closestDist = hits[0].distance;
+      closest = { enemy: e, point: hits[0].point, isHead: hits[0].object === e.head };
+    }
   }
 
-  document.getElementById('start-btn').addEventListener('click', startGame);
-  document.getElementById('restart-btn').addEventListener('click', startGame);
+  // Check walls so bullet doesn't pass through
+  let wallDist = Infinity;
+  for (const w of walls) {
+    const hits = ray.intersectObject(w, false);
+    if (hits.length && hits[0].distance < wallDist) {
+      wallDist = hits[0].distance;
+    }
+  }
 
-  // initial render so it doesn't show black
-  resetRoad();
-  resetCars();
-  render();
-  requestAnimationFrame(frame);
-})();
+  if (closest && closestDist < wallDist) {
+    const dmg = closest.isHead ? 3 : 1;
+    closest.enemy.hp -= dmg;
+    spawnParticles(closest.point, 0xff3030, 14, 5);
+    if (closest.enemy.hp <= 0) killEnemy(closest.enemy);
+  } else if (wallDist !== Infinity) {
+    const hitPoint = origin.clone().add(dir.clone().multiplyScalar(wallDist));
+    spawnParticles(hitPoint, 0xccaa88, 6, 3);
+  }
+}
+
+function killEnemy(e) {
+  if (e.dead) return;
+  e.dead = true;
+  spawnParticles(e.group.position.clone().add(new THREE.Vector3(0, 1, 0)), 0x882020, 22, 6);
+  scene.remove(e.group);
+  const idx = enemies.indexOf(e);
+  if (idx >= 0) enemies.splice(idx, 1);
+  score += 100;
+  waveEnemiesRemaining--;
+  updateHUD();
+}
+
+function damagePlayer(amt) {
+  player.hp -= amt;
+  damageFlash.classList.add('hit');
+  setTimeout(() => damageFlash.classList.remove('hit'), 60);
+  if (player.hp <= 0) {
+    player.hp = 0;
+    updateHUD();
+    endGame(false);
+  } else {
+    updateHUD();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Collision helpers
+// ---------------------------------------------------------------------------
+function collideAABB(pos, radius) {
+  // Resolve collisions with axis-aligned bounding boxes (works for boxes; cylinders use bbox).
+  for (const w of walls) {
+    const box = new THREE.Box3().setFromObject(w);
+    const minX = box.min.x - radius;
+    const maxX = box.max.x + radius;
+    const minZ = box.min.z - radius;
+    const maxZ = box.max.z + radius;
+    if (pos.x > minX && pos.x < maxX && pos.z > minZ && pos.z < maxZ) {
+      // Push out along minimum penetration axis
+      const dx1 = pos.x - minX;
+      const dx2 = maxX - pos.x;
+      const dz1 = pos.z - minZ;
+      const dz2 = maxZ - pos.z;
+      const m = Math.min(dx1, dx2, dz1, dz2);
+      if (m === dx1) pos.x = minX;
+      else if (m === dx2) pos.x = maxX;
+      else if (m === dz1) pos.z = minZ;
+      else pos.z = maxZ;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// HUD updates
+// ---------------------------------------------------------------------------
+function updateHUD() {
+  healthFill.style.width = `${(player.hp / player.maxHp) * 100}%`;
+  ammoEl.textContent = `${player.mag} / ${player.reserve}`;
+  scoreEl.textContent = score;
+  waveEl.textContent = wave;
+}
+
+// ---------------------------------------------------------------------------
+// Main loop
+// ---------------------------------------------------------------------------
+const clock = new THREE.Clock();
+const forward = new THREE.Vector3();
+const right = new THREE.Vector3();
+
+function update(dt) {
+  // Camera orientation from yaw/pitch
+  const cosP = Math.cos(player.pitch);
+  forward.set(
+    -Math.sin(player.yaw) * cosP,
+    Math.sin(player.pitch),
+    -Math.cos(player.yaw) * cosP
+  );
+  // Flat forward for movement
+  const moveF = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
+  const moveR = new THREE.Vector3(Math.cos(player.yaw), 0, -Math.sin(player.yaw));
+
+  // Movement
+  const wish = new THREE.Vector3();
+  if (keys.has('KeyW') || keys.has('ArrowUp')) wish.add(moveF);
+  if (keys.has('KeyS') || keys.has('ArrowDown')) wish.sub(moveF);
+  if (keys.has('KeyD') || keys.has('ArrowRight')) wish.add(moveR);
+  if (keys.has('KeyA') || keys.has('ArrowLeft')) wish.sub(moveR);
+  if (wish.lengthSq() > 0) wish.normalize();
+
+  const sprint = keys.has('ShiftLeft') || keys.has('ShiftRight');
+  const speed = player.speed * (sprint ? player.sprintMul : 1);
+
+  // Horizontal velocity (instant for responsive feel, with mild smoothing)
+  player.vel.x = THREE.MathUtils.damp(player.vel.x, wish.x * speed, 18, dt);
+  player.vel.z = THREE.MathUtils.damp(player.vel.z, wish.z * speed, 18, dt);
+
+  // Gravity & jump
+  player.vel.y -= 22 * dt;
+  if ((keys.has('Space')) && player.onGround) {
+    player.vel.y = player.jumpVel;
+    player.onGround = false;
+  }
+
+  // Apply
+  player.pos.x += player.vel.x * dt;
+  player.pos.z += player.vel.z * dt;
+  collideAABB(player.pos, player.radius);
+
+  player.pos.y += player.vel.y * dt;
+  if (player.pos.y <= 1.7) {
+    player.pos.y = 1.7;
+    player.vel.y = 0;
+    player.onGround = true;
+  }
+
+  // Clamp inside arena
+  const lim = ARENA - 1.2;
+  if (player.pos.x > lim) player.pos.x = lim;
+  if (player.pos.x < -lim) player.pos.x = -lim;
+  if (player.pos.z > lim) player.pos.z = lim;
+  if (player.pos.z < -lim) player.pos.z = -lim;
+
+  // View bob
+  const hSpeed = Math.hypot(player.vel.x, player.vel.z);
+  player.bobPhase += dt * (hSpeed * 1.6);
+  const bobY = Math.sin(player.bobPhase * 2) * 0.04 * (hSpeed / speed);
+  const bobX = Math.cos(player.bobPhase) * 0.03 * (hSpeed / speed);
+
+  camera.position.set(player.pos.x + bobX, player.pos.y + bobY, player.pos.z);
+  camera.rotation.order = 'YXZ';
+  camera.rotation.y = player.yaw;
+  camera.rotation.x = player.pitch;
+
+  // Sun follows player (so shadows stay sharp where it matters)
+  sun.position.set(player.pos.x + 30, 50, player.pos.z + 20);
+  sun.target.position.set(player.pos.x, 0, player.pos.z);
+  sun.target.updateMatrixWorld();
+
+  // Weapon recoil/recovery
+  weapon.position.z = THREE.MathUtils.damp(weapon.position.z, -0.55, 12, dt);
+  muzzleFlash.material.opacity = THREE.MathUtils.damp(muzzleFlash.material.opacity, 0, 22, dt);
+  muzzleLight.intensity = THREE.MathUtils.damp(muzzleLight.intensity, 0, 22, dt);
+
+  // Firing
+  player.fireCd = Math.max(0, player.fireCd - dt);
+  if (mouseDown) tryFire();
+
+  // Reload
+  if (player.reloading) {
+    player.reloadTime -= dt;
+    weapon.rotation.x = THREE.MathUtils.damp(weapon.rotation.x, -0.6, 8, dt);
+    if (player.reloadTime <= 0) {
+      const need = player.magSize - player.mag;
+      const give = Math.min(need, player.reserve);
+      player.mag += give;
+      player.reserve -= give;
+      player.reloading = false;
+      updateHUD();
+    }
+  } else {
+    weapon.rotation.x = THREE.MathUtils.damp(weapon.rotation.x, 0, 10, dt);
+  }
+
+  // Enemies AI
+  for (const e of enemies) {
+    if (e.dead) continue;
+    const dx = player.pos.x - e.group.position.x;
+    const dz = player.pos.z - e.group.position.z;
+    const dist = Math.hypot(dx, dz);
+    const dirX = dx / (dist || 1);
+    const dirZ = dz / (dist || 1);
+
+    // Face player
+    e.group.rotation.y = Math.atan2(dirX, dirZ);
+
+    if (dist > 1.4) {
+      const nx = e.group.position.x + dirX * e.speed * dt;
+      const nz = e.group.position.z + dirZ * e.speed * dt;
+      // Collide with walls (don't push into them)
+      const tmp = new THREE.Vector3(nx, 0, nz);
+      collideAABB(tmp, e.radius);
+      e.group.position.x = tmp.x;
+      e.group.position.z = tmp.z;
+
+      // Walk animation
+      e.walkPhase += dt * 8;
+      const swing = Math.sin(e.walkPhase) * 0.5;
+      e.legL.rotation.x = swing;
+      e.legR.rotation.x = -swing;
+    } else {
+      e.legL.rotation.x = 0;
+      e.legR.rotation.x = 0;
+    }
+
+    // Attack
+    e.attackCd -= dt;
+    if (dist < 1.8 && e.attackCd <= 0) {
+      damagePlayer(8);
+      e.attackCd = 0.9;
+      // Little lunge
+      e.group.position.x -= dirX * 0.15;
+      e.group.position.z -= dirZ * 0.15;
+    }
+  }
+
+  // Bullets
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    const b = bullets[i];
+    b.mesh.position.addScaledVector(b.vel, dt);
+    b.life -= dt;
+    if (b.life <= 0) {
+      scene.remove(b.mesh);
+      bullets.splice(i, 1);
+    }
+  }
+
+  // Particles
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.vel.y -= 12 * dt;
+    p.mesh.position.addScaledVector(p.vel, dt);
+    p.life -= dt;
+    p.mesh.material.opacity = Math.max(0, p.life / 0.7);
+    if (p.life <= 0) {
+      scene.remove(p.mesh);
+      particles.splice(i, 1);
+    }
+  }
+
+  // Wave control
+  if (waveEnemiesRemaining <= 0) {
+    nextWaveTimer -= dt;
+    if (nextWaveTimer <= 0) {
+      spawnWave();
+      nextWaveTimer = 4.0;
+    }
+  }
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  if (gameRunning && !paused) update(dt);
+  renderer.render(scene, camera);
+}
+
+updateHUD();
+animate();
