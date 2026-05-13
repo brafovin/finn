@@ -25,8 +25,7 @@ const endTitleEl = document.getElementById('end-title');
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.enabled = false;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
@@ -50,21 +49,10 @@ scene.add(ambient);
 
 const sun = new THREE.DirectionalLight(0xfff0d0, 1.6);
 sun.position.set(30, 50, 20);
-sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.near = 1;
-sun.shadow.camera.far = 150;
-sun.shadow.camera.left = -60;
-sun.shadow.camera.right = 60;
-sun.shadow.camera.top = 60;
-sun.shadow.camera.bottom = -60;
-sun.shadow.bias = -0.0005;
-sun.shadow.normalBias = 0.02;
 scene.add(sun);
 scene.add(sun.target);
 
 const muzzleLight = new THREE.PointLight(0xffaa44, 0, 18, 2);
-muzzleLight.castShadow = false;
 camera.add(muzzleLight);
 muzzleLight.position.set(0.25, -0.25, -0.6);
 scene.add(camera);
@@ -108,7 +96,6 @@ const floorMat = new THREE.MeshStandardMaterial({
 });
 const floor = new THREE.Mesh(new THREE.PlaneGeometry(ARENA * 2, ARENA * 2), floorMat);
 floor.rotation.x = -Math.PI / 2;
-floor.receiveShadow = true;
 scene.add(floor);
 
 // Outer walls
@@ -140,8 +127,6 @@ const walls = [];
 function addWall(x, z, w, d, h = 6) {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
   mesh.position.set(x, h / 2, z);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
   scene.add(mesh);
   walls.push(mesh);
   return mesh;
@@ -184,8 +169,6 @@ for (let i = 0; i < 22; i++) {
     const r = 0.6 + rng() * 0.8;
     const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 16), pillarMat);
     m.position.set(x, h / 2, z);
-    m.castShadow = true;
-    m.receiveShadow = true;
     scene.add(m);
     walls.push(m);
   } else {
@@ -195,8 +178,6 @@ for (let i = 0; i < 22; i++) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), crateMat);
     m.position.set(x, h / 2, z);
     m.rotation.y = rng() * Math.PI;
-    m.castShadow = true;
-    m.receiveShadow = true;
     scene.add(m);
     walls.push(m);
   }
@@ -251,14 +232,10 @@ function createEnemy(x, z, hp = 2) {
 
   const body = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.0, 0.5), enemyBodyMat);
   body.position.y = 0.9;
-  body.castShadow = true;
-  body.receiveShadow = true;
   g.add(body);
 
   const head = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.55, 0.55), enemyHeadMat);
   head.position.y = 1.7;
-  head.castShadow = true;
-  head.receiveShadow = true;
   g.add(head);
 
   const eyeL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.04), enemyEyeMat);
@@ -272,22 +249,18 @@ function createEnemy(x, z, hp = 2) {
   const legGeo = new THREE.BoxGeometry(0.22, 0.7, 0.25);
   const legL = new THREE.Mesh(legGeo, enemyBodyMat);
   legL.position.set(-0.18, 0.35, 0);
-  legL.castShadow = true;
   g.add(legL);
   const legR = new THREE.Mesh(legGeo, enemyBodyMat);
   legR.position.set(0.18, 0.35, 0);
-  legR.castShadow = true;
   g.add(legR);
 
   // Arms
   const armGeo = new THREE.BoxGeometry(0.18, 0.7, 0.18);
   const armL = new THREE.Mesh(armGeo, enemyBodyMat);
   armL.position.set(-0.44, 0.95, 0);
-  armL.castShadow = true;
   g.add(armL);
   const armR = new THREE.Mesh(armGeo, enemyBodyMat);
   armR.position.set(0.44, 0.95, 0);
-  armR.castShadow = true;
   g.add(armR);
 
   scene.add(g);
