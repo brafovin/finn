@@ -147,7 +147,7 @@
 
     // place roadside sprites (dense, varied landscape)
     const SPRITE_TYPES = ['palm', 'palm', 'tree', 'tree', 'tree', 'pine', 'pine', 'pine',
-                          'cactus', 'cactus', 'bush', 'bush', 'rock', 'rock', 'pylon', 'sign'];
+                          'cactus', 'cactus', 'rock', 'rock', 'pylon', 'sign'];
     for (let i = 10; i < segments.length; i += 1 + Math.floor(Math.random() * 3)) {
       // left side
       if (Math.random() < 0.7) {
@@ -745,7 +745,7 @@
         const sScale = segment.p1.screen.scale +
                        (segment.p2.screen.scale - segment.p1.screen.scale) * carPercent;
         const screenX = sx + (sScale * car.offset * ROAD_WIDTH * W / 2);
-        drawCarSprite(screenX, sy, sScale * 2200, car.color, false);
+        drawCarSprite(screenX, sy, sScale * 3500, car.color, false);
       }
     }
 
@@ -769,7 +769,7 @@
 
     ctx.save();
     ctx.translate(px + lean, py + bob);
-    drawCarSprite(0, 0, 1.3, '#ff2050', true);
+    drawCarSprite(0, 0, 2.2, '#ff2050', true);
     ctx.restore();
 
     // motion lines at high speed
